@@ -111,6 +111,10 @@ class ComponentDefinition(_StrictModel):
     outputs: list[PortDefinition] = Field(default_factory=list)
     default_parameters: dict[SnakeCaseName, ParameterValue] = Field(default_factory=dict)
     parameter_constraints: dict[SnakeCaseName, ParameterConstraint] = Field(default_factory=dict)
+    # When True, edges into this node deliver the source's value from the previous
+    # tick, so a cycle passing through this node is a legal feedback loop. The
+    # execution engine must honor this one-tick delay. All other cycles are rejected.
+    accepts_feedback: bool = False
 
     @model_validator(mode="after")
     def _check_ports_and_parameters(self) -> Self:

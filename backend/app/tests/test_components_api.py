@@ -20,6 +20,7 @@ DEFINITION_KEYS = {
     "outputs",
     "default_parameters",
     "parameter_constraints",
+    "accepts_feedback",
 }
 
 
@@ -42,7 +43,12 @@ def test_get_component(client: TestClient) -> None:
     assert body["type"] == "joystick"
     assert body["category"] == "input"
     assert body["inputs"] == []
-    assert {"name": "direction", "data_type": "vector2", "description": "Stick direction."} in body["outputs"]
+    assert {
+        "name": "direction",
+        "data_type": "vector2",
+        "description": "Stick direction.",
+        "required": False,
+    } in body["outputs"]
     assert body["default_parameters"]["dead_zone"] == 0.1
     assert body["parameter_constraints"]["dead_zone"]["type"] == "number"
     assert body["parameter_constraints"]["dead_zone"]["maximum"] == 0.9

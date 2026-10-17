@@ -1,0 +1,4 @@
+# Plugin tests only (not installed by KiCad). Use a Python that includes Tkinter.
+-r ../../plugin/requirements.txt
+pytest==9.1.1
+jsonschema==4.26.0

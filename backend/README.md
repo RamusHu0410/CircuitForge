@@ -34,6 +34,20 @@ uvicorn app.main:app --reload
 | GET    | `/api/health`                      | Backend health check                         |
 | GET    | `/api/components`                  | All registered component definitions         |
 | GET    | `/api/components/{component_type}` | One component definition (404 if unknown)    |
+| POST   | `/api/blueprints/validate`         | Validate a blueprint (see below)             |
+
+### Blueprint validation
+
+`POST /api/blueprints/validate` returns HTTP 200 with `{valid, errors, warnings}`
+for any well-formed blueprint, even an invalid one. Malformed JSON or wrong
+field types return HTTP 422. Each issue has a `code`, a `message`, and, when
+relevant, a `node_id`, `edge_id`, and `field` (port or parameter name) so the
+frontend can highlight the problem in React Flow.
+
+Cycles are rejected unless they pass through a component with
+`accepts_feedback: true` (currently `ball_controller`). Edges into such a node
+deliver the previous tick's value; allowed loops are reported as `FEEDBACK_LOOP`
+warnings.
 
 Port data types: `number`, `boolean`, `vector2` (`{x, y}`), `event`, `game_state`.
 

@@ -27,6 +27,9 @@ DEFINITION = ComponentDefinition(
         PortDefinition(name="position", data_type=PortDataType.VECTOR2, description="Current ball position."),
         PortDefinition(name="velocity", data_type=PortDataType.VECTOR2, description="Current ball velocity."),
     ],
+    # Hits and resets come from logic that reads the ball's own position, so the
+    # ball closes feedback loops: its inputs are applied on the next tick.
+    accepts_feedback=True,
     default_parameters={"kick_speed": 4.0, "friction": 0.05, "start_x": 50.0, "start_y": 30.0},
     parameter_constraints={
         "kick_speed": ParameterConstraint(

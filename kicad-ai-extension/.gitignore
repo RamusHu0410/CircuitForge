@@ -1,0 +1,14 @@
+# Secrets and local settings (never commit)
+.env
+.env.*
+!.env.example
+plugin/config.json
+
+# Virtual environments
+.venv/
+venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/

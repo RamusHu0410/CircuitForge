@@ -1,0 +1,4 @@
+# Installed automatically by KiCad into this plugin's virtual environment
+# (KiCad runs: pip install --only-binary :all: -r requirements.txt).
+# The dialog uses Tkinter from the Python standard library; no GUI package is needed here.
+kicad-python==0.8.0

@@ -19,7 +19,9 @@ DEFINITION = ComponentDefinition(
     description="Detects goals from the ball position and keeps the score for both teams.",
     category=ComponentCategory.LOGIC,
     inputs=[
-        PortDefinition(name="ball_position", data_type=PortDataType.VECTOR2, description="Current ball position."),
+        PortDefinition(
+            name="ball_position", data_type=PortDataType.VECTOR2, required=True, description="Current ball position."
+        ),
         PortDefinition(name="reset", data_type=PortDataType.EVENT, description="Reset both scores to zero."),
     ],
     outputs=[

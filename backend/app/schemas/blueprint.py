@@ -5,14 +5,16 @@ Node `id`, `type`, `position` and edge `id`, `source`, `target` map directly to
 React Flow nodes and edges; `source_port`/`target_port` map to React Flow's
 `sourceHandle`/`targetHandle`.
 
-These models check structure only (types, unique IDs, edges pointing at real
-nodes). Checking component types, ports and parameter values against the
-component registry is the graph validator's job.
+These models check shape only: required fields, value types and identifier
+formats. Malformed data fails here (HTTP 422). Graph-level rules (unique IDs,
+edges pointing at real nodes, registered components, ports, parameters,
+cycles) live in `app.core.graph_validator`, which reports every problem as a
+structured validation issue instead of failing on the first one.
 """
 
-from typing import Annotated, Self
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, StringConstraints
 
 from app.schemas.component import ParameterValue, SnakeCaseName
 
@@ -59,24 +61,6 @@ class Blueprint(_StrictModel):
     id: Identifier
     version: int = Field(default=1, ge=1, description="Revision number, incremented on each edit.")
     metadata: BlueprintMetadata
-    nodes: list[BlueprintNode] = Field(default_factory=list)
-    edges: list[BlueprintEdge] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def _check_graph_structure(self) -> Self:
-        node_ids = [node.id for node in self.nodes]
-        duplicate_nodes = sorted({i for i in node_ids if node_ids.count(i) > 1})
-        if duplicate_nodes:
-            raise ValueError(f"duplicate node ids: {duplicate_nodes}")
-
-        edge_ids = [edge.id for edge in self.edges]
-        duplicate_edges = sorted({i for i in edge_ids if edge_ids.count(i) > 1})
-        if duplicate_edges:
-            raise ValueError(f"duplicate edge ids: {duplicate_edges}")
-
-        known = set(node_ids)
-        for edge in self.edges:
-            missing = [end for end in (edge.source, edge.target) if end not in known]
-            if missing:
-                raise ValueError(f"edge '{edge.id}' references unknown node(s): {missing}")
-        return self
+    # Size caps keep validation fast and bound request cost.
+    nodes: list[BlueprintNode] = Field(default_factory=list, max_length=500)
+    edges: list[BlueprintEdge] = Field(default_factory=list, max_length=2000)

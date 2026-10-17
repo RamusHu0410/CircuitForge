@@ -131,25 +131,23 @@ def test_edge_missing_field_rejected(missing: str) -> None:
         Blueprint.model_validate(data)
 
 
-def test_duplicate_node_ids_rejected() -> None:
+def test_graph_level_problems_are_left_to_graph_validator() -> None:
+    """Well-shaped data parses; duplicate IDs and dangling edges are reported by
+    `graph_validator` as structured issues (see test_graph_validator.py)."""
     data = make_blueprint()
     data["nodes"].append(copy.deepcopy(data["nodes"][0]))
-    with pytest.raises(ValidationError, match="duplicate node ids"):
-        Blueprint.model_validate(data)
-
-
-def test_duplicate_edge_ids_rejected() -> None:
-    data = make_blueprint()
     data["edges"].append(copy.deepcopy(data["edges"][0]))
-    with pytest.raises(ValidationError, match="duplicate edge ids"):
-        Blueprint.model_validate(data)
+    data["edges"][1]["target"] = "ghost"
+
+    blueprint = Blueprint.model_validate(data)
+    assert len(blueprint.nodes) == 3 and len(blueprint.edges) == 2
 
 
-@pytest.mark.parametrize("end", ["source", "target"])
-def test_edge_to_unknown_node_rejected(end: str) -> None:
+def test_too_many_nodes_rejected() -> None:
     data = make_blueprint()
-    data["edges"][0][end] = "ghost"
-    with pytest.raises(ValidationError, match="unknown node"):
+    data["nodes"] = [{**VALID_NODE, "id": f"n{i}"} for i in range(501)]
+    data["edges"] = []
+    with pytest.raises(ValidationError):
         Blueprint.model_validate(data)
 
 

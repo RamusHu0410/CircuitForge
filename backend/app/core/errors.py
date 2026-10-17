@@ -2,6 +2,8 @@
 
 from collections.abc import Iterable
 
+from app.schemas.common import ValidationResult
+
 
 class CurcuitForgeError(Exception):
     """Base class for CurcuitForge domain errors."""
@@ -21,3 +23,13 @@ class UnknownComponentError(CurcuitForgeError):
             f"Unknown component type '{component_type}'. "
             f"Available types: {', '.join(self.available) or 'none'}."
         )
+
+
+class BlueprintValidationError(CurcuitForgeError):
+    """Raised when code that needs a valid blueprint (e.g. the executor) receives an invalid one."""
+
+    def __init__(self, result: ValidationResult) -> None:
+        self.result = result
+        shown = "; ".join(issue.message for issue in result.errors[:3])
+        more = f" (+{len(result.errors) - 3} more)" if len(result.errors) > 3 else ""
+        super().__init__(f"Blueprint is invalid: {shown}{more}")

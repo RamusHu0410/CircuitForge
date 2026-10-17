@@ -7,7 +7,7 @@ Run from the `backend/` directory:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import components, health
+from app.api.routes import blueprints, components, health
 from app.config import get_settings
 
 
@@ -31,6 +31,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router, prefix=settings.api_prefix)
     app.include_router(components.router, prefix=settings.api_prefix)
+    app.include_router(blueprints.router, prefix=settings.api_prefix)
 
     return app
 

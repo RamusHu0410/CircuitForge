@@ -20,8 +20,12 @@ DEFINITION = ComponentDefinition(
     description="Fires when two positions are within a set distance of each other.",
     category=ComponentCategory.LOGIC,
     inputs=[
-        PortDefinition(name="position_a", data_type=PortDataType.VECTOR2, description="First object, e.g. a player."),
-        PortDefinition(name="position_b", data_type=PortDataType.VECTOR2, description="Second object, e.g. the ball."),
+        PortDefinition(
+            name="position_a", data_type=PortDataType.VECTOR2, required=True, description="First object, e.g. a player."
+        ),
+        PortDefinition(
+            name="position_b", data_type=PortDataType.VECTOR2, required=True, description="Second object, e.g. the ball."
+        ),
     ],
     outputs=[
         PortDefinition(name="collision", data_type=PortDataType.EVENT, description="Fires on contact."),
