@@ -89,7 +89,7 @@ class GenerationService:
 
     def generate(self, request: GenerateRequest) -> GenerateResponse:
         request_id = uuid.uuid4().hex
-        generated = self.generator.generate(request.prompt)  # raises GenerationError for unsupported prompts
+        generated = self.generator.generate(request.prompt, request.plan)  # raises GenerationError for unsupported prompts
         spec = generated.spec
         built = self.build(spec, request.prompt)
 

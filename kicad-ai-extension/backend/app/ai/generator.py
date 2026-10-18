@@ -15,13 +15,14 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from app.ai.circuit_generator import RuleBasedGenerator
+from app.ai.circuit_generator import GenerationError, RuleBasedGenerator
 from app.ai.firmware import needs_microcontroller
 from app.ai.llm_planner import LlmError, LlmPlanner
 from app.ai.system_designer import build_system
 from app.ai.system_rules import plan_system, wants_system
 from app.config import Settings
 from app.schemas.circuit import CircuitSpec
+from app.schemas.system import SystemPlan
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def wants_firmware(prompt: str) -> bool:
 @dataclass(frozen=True)
 class Generated:
     spec: CircuitSpec
-    source: Literal["rules", "llm"]
+    source: Literal["rules", "llm", "plan"]
 
 
 class Generator:
@@ -61,7 +62,23 @@ class Generator:
             llm = LlmPlanner(settings.llm_api_key, settings.llm_model, settings.llm_base_url, settings.llm_timeout_s)
         return cls(llm)
 
-    def generate(self, prompt: str) -> Generated:
+    def translate(self, prompt: str) -> tuple[SystemPlan, Literal["rules", "llm"]]:
+        """Read a project description into a plan, with the language model if configured."""
+        if self.llm is not None:
+            try:
+                return self.llm.plan(prompt), "llm"
+            except LlmError as exc:
+                logger.warning("language model unavailable, using rules: %s", exc)
+        if not wants_system(prompt):
+            raise GenerationError(
+                "That reads as a single circuit rather than a multi-part project. Use Build it for it, "
+                "or mention joysticks, buttons, knobs, LEDs or a buzzer for a complex task."
+            )
+        return plan_system(prompt), "rules"
+
+    def generate(self, prompt: str, plan: SystemPlan | None = None) -> Generated:
+        if plan is not None:
+            return Generated(build_system(plan), "plan")
         if wants_firmware(prompt):
             return Generated(self.templates.generate(prompt), "rules")
         if self.llm is not None:

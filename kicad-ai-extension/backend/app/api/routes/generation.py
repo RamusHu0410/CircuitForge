@@ -6,7 +6,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from app.ai.system_rules import plan_to_calls
+from app.schemas.system import SystemPlan
 
 from app.ai.circuit_generator import SUPPORTED_CIRCUITS
 from app.config import Settings, get_settings
@@ -78,13 +83,38 @@ def generate_svg(request: GenerateRequest, service: Annotated[GenerationService,
     if cli is None:
         raise HTTPException(status_code=503, detail="KiCad's command-line tools were not found, so the schematic can't be drawn.")
     try:
-        built = service.build(service.generator.generate(request.prompt).spec, request.prompt)
+        built = service.build(service.generator.generate(request.prompt, request.plan).spec, request.prompt)
         svg = export_svg(built.files, cli)
     except GenerationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except SvgExportError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+
+
+class TranslateRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+
+
+class TranslateResponse(BaseModel):
+    source: Literal["rules", "llm"]
+    ai_available: bool
+    calls: list[str]
+    plan: SystemPlan
+
+
+@router.post(
+    "/translate",
+    response_model=TranslateResponse,
+    summary="Translate a complex project description into function calls (AI if configured)",
+    responses={422: {"description": "The text is not a multi-part project the generator can plan"}},
+)
+def translate(request: TranslateRequest, service: Annotated[GenerationService, Depends(get_service)]) -> TranslateResponse:
+    try:
+        plan, source = service.generator.translate(request.prompt.strip())
+    except GenerationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return TranslateResponse(source=source, ai_available=service.generator.llm is not None, calls=plan_to_calls(plan), plan=plan)
 
 
 class CapabilitiesResponse(BaseModel):

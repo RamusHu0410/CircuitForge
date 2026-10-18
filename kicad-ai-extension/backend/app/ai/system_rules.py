@@ -142,3 +142,16 @@ def _describe(modules: list) -> str:
         else:
             parts.append(f"{type(m).__name__.lower()} {m.label}")
     return "Arduino Uno with " + ", ".join(parts) + "."
+
+
+def plan_to_calls(plan: SystemPlan) -> list[str]:
+    """The plan as function calls, one per module, e.g. led_group(label="BALL", count=7, color="yellow")."""
+    calls = []
+    for m in plan.modules:
+        args = [f'label="{m.label}"']
+        if isinstance(m, LedGroup):
+            args += [f"count={m.count}", f'color="{m.color}"']
+        if m.purpose:
+            args.append(f'purpose="{m.purpose}"')
+        calls.append(f"{m.type}({', '.join(args)})")
+    return calls

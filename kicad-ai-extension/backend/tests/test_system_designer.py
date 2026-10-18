@@ -124,3 +124,13 @@ def test_gemini_request_and_reply_shapes() -> None:
 def test_gemini_key_enables_gemini_planner() -> None:
     gen = Generator.from_settings(Settings(gemini_api_key="k"))
     assert gen.llm is not None and gen.llm.provider == "gemini"
+
+
+def test_translate_endpoint_and_build_from_plan(client) -> None:
+    r = client.post("/api/translate", json={"prompt": FOOTBALL})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "rules" and 'led_group(label="BALL", count=7, color="yellow"' in " ".join(body["calls"])
+    g = client.post("/api/generate", json={"prompt": FOOTBALL, "plan": body["plan"]})
+    assert g.status_code == 200 and g.json()["generator"] == "plan"
+    assert client.post("/api/translate", json={"prompt": "5V regulator from 12V"}).status_code == 422
