@@ -463,3 +463,19 @@ button.tool-head:hover .tool-name { text-decoration: underline; text-underline-o
 .cr-card-empty { margin: 0 0 8px; font-size: 12.5px; line-height: 1.5; }
 .cr-more { padding: 2px 0 0 26px; }
 @media (max-width: 1100px) { .sv-play-grid { grid-template-columns: 1fr; } }
+
+/* ============ home (frontend/components/Home.tsx) ============ */
+.home { height: 100%; display: grid; place-items: center; padding: 24px; overflow: auto; }
+.home-inner { width: min(720px, 100%); display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
+.home h1 { margin: 0; font-size: 26px; font-weight: 600; }
+.home-box { width: 100%; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.home-box textarea { width: 100%; resize: vertical; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg); font: inherit; }
+.home-box textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+.home-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.home-actions .btn { height: 34px; }
+.home-primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+.home-primary:hover:not(:disabled) { background: var(--brand); filter: brightness(0.95); }
+.home-examples { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.home-examples .chip { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--dim); font-size: 12px; }
+.home-examples .chip:hover { background: var(--hover); color: var(--text); }
+.back-home { margin: 10px 14px 0; align-self: flex-start; }

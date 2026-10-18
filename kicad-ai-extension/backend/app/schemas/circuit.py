@@ -11,6 +11,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.schemas.system import SystemPlan
+
 from app.schemas.lesson import Lesson
 
 MAX_PROMPT_LENGTH = 4000
@@ -37,6 +39,9 @@ class GenerationContext(_Strict):
 
 class GenerateRequest(_Strict):
     prompt: Prompt
+    plan: SystemPlan | None = Field(
+        default=None, description="A plan from /translate (possibly edited). When given it is built instead of re-reading the prompt."
+    )
     context: GenerationContext | None = None
 
 
@@ -201,7 +206,7 @@ class GenerateResponse(BaseModel):
     status: Literal["generated"]
     message: str
     prompt: str
-    generator: Literal["rules", "llm"]
+    generator: Literal["rules", "llm", "plan"]
     circuit: CircuitSpec
     validation: ValidationReport
     erc: ErcReport
