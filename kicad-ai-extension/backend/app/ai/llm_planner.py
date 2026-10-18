@@ -32,6 +32,8 @@ Reply with ONE JSON object and nothing else. Choose only from these modules:
 - {"type": "knob", "label": L}                potentiometer read as an analog value
 - {"type": "button", "label": L}              momentary push button
 - {"type": "led_group", "label": L, "count": 1-16, "color": "red|orange|yellow|green|blue|white"}
+- {"type": "led_matrix", "label": L, "rows": 2-8, "cols": 2-8, "color": "red|orange|yellow|green|blue|white"}
+                                              LEDs in a grid (a small screen), multiplexed by row and column
 - {"type": "buzzer", "label": L}              piezo buzzer
 
 Every module may also have a short "purpose" string. Labels are unique, 1-8 characters, A-Z, 0-9 and

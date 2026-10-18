@@ -49,13 +49,22 @@ class LedGroup(_Module):
     color: LedColor = "red"
 
 
+class LedMatrix(_Module):
+    """`rows` x `cols` LEDs in a grid, multiplexed: one pin per row (anodes) and one per column (cathodes)."""
+
+    type: Literal["led_matrix"] = "led_matrix"
+    rows: int = Field(ge=2, le=8)
+    cols: int = Field(ge=2, le=8)
+    color: LedColor = "red"
+
+
 class Buzzer(_Module):
     """Piezo buzzer driven with tone()."""
 
     type: Literal["buzzer"] = "buzzer"
 
 
-Module = Annotated[Joystick | Knob | Button | LedGroup | Buzzer, Field(discriminator="type")]
+Module = Annotated[Joystick | Knob | Button | LedGroup | LedMatrix | Buzzer, Field(discriminator="type")]
 
 
 class SystemPlan(BaseModel):

@@ -23,11 +23,12 @@ from app.ai.circuit_generator import (
     format_ohms,
 )
 from app.schemas.circuit import Caption, CircuitSpec, Layout
-from app.schemas.system import Button, Buzzer, Joystick, Knob, LedGroup, SystemPlan
+from app.schemas.system import Button, Buzzer, Joystick, Knob, LedGroup, LedMatrix, SystemPlan
 
 SUPPLY = 5.0
 DIRECT_LED_A = 0.010  # driven straight from an Uno pin (limit 20 mA per pin)
 SHIFTED_LED_A = 0.005  # driven from a 74HC595 (limit 6 mA for full-level outputs; 70 mA per package)
+PIN_LIMIT_A = 0.020  # Uno recommended per-pin current; a matrix row pin feeds a whole row at once
 BUZZER_SERIES_OHMS = "330"
 
 # Uno R3 pins by number (see the MCU_Module:Arduino_UNO_R3 symbol).
@@ -91,6 +92,7 @@ def _pins_needed(plan: SystemPlan) -> tuple[int, int]:
     """(analog inputs, digital pins excluding LEDs)."""
     analog = sum(2 for m in plan.modules if isinstance(m, Joystick)) + sum(1 for m in plan.modules if isinstance(m, Knob))
     digital = sum(1 for m in plan.modules if isinstance(m, (Joystick, Button, Buzzer)))
+    digital += sum(m.rows + m.cols for m in plan.modules if isinstance(m, LedMatrix))
     return analog, digital
 
 
@@ -249,6 +251,12 @@ def build_system(plan: SystemPlan) -> CircuitSpec:
                 s.pin_map.append(f"{m.label} LEDs{part}: {', '.join(pins)} (HIGH = on).")
                 output_blocks.append(blk)
 
+    for m in plan.modules:
+        if isinstance(m, LedMatrix):
+            blk, ma = _led_matrix(s, uno, m, digital)
+            direct_ma += ma
+            output_blocks.append(blk)
+
     if shifted_groups:
         output_blocks += _shift_registers(s, uno, sr_pins, registers, shifted_nets)
         # LED chains for the shifted outputs
@@ -304,6 +312,65 @@ def build_system(plan: SystemPlan) -> CircuitSpec:
         captions=captions,
     )
     return spec.model_copy(update={"layout": layout})
+
+
+def _led_matrix(s: _System, uno: str, m: LedMatrix, digital) -> tuple[_Block, float]:  # type: ignore[no-untyped-def]
+    """A multiplexed grid: LED (r, c) has its anode on row r and its cathode on column c.
+
+    The firmware drives one row HIGH at a time and pulls LOW the columns whose LEDs should light, so
+    one row pin feeds up to `cols` LEDs at once. Each column gets the resistor (only one LED per column
+    is lit at a time), sized so a full row stays under the pin limit. Returns the block and the worst-case
+    current in mA (one full row).
+    """
+    b = s.b
+    amps = min(DIRECT_LED_A, PIN_LIMIT_A / m.cols)
+    ohms = _led_resistor(SUPPLY, LED_VF[m.color], amps)
+    per_led = (SUPPLY - LED_VF[m.color]) / ohms
+    rows = [s.net_name(f"{m.label}_R{r + 1}") for r in range(m.rows)]
+    cols = [s.net_name(f"{m.label}_C{c + 1}") for c in range(m.cols)]  # controller pin -> resistor
+    sinks = [s.net_name(f"{m.label}_K{c + 1}") for c in range(m.cols)]  # resistor -> the column's cathodes
+    row_pins = []
+    for net in rows:
+        name, pin = digital()
+        s.link(net, (uno, pin))
+        row_pins.append(name)
+    col_pins = []
+    for net in cols:
+        name, pin = digital()
+        s.link(net, (uno, pin))
+        col_pins.append(name)
+
+    # Grid cells: LEDs 5 apart across and 7 down (anode on top, cathode 3 below, so the pin stubs and
+    # labels of neighbouring rows stay apart), then the column resistors in a row underneath.
+    blk = _Block(f"{m.label} {m.rows}x{m.cols} LED matrix", 5 * m.cols + 2, 7 * m.rows + 9)
+    first_led = None
+    for r in range(m.rows):
+        for c in range(m.cols):
+            d = b.add("D", "led", m.color.capitalize(), f"{m.label} row {r + 1}, column {c + 1}")
+            first_led = first_led or d
+            s.link(rows[r], (d, "A"))
+            s.link(sinks[c], (d, "K"))
+            blk.put(d, "2", 3 + 5 * c, 3 + 7 * r, "down")
+    resistors = []
+    for c in range(m.cols):
+        res = b.add("R", "resistor", format_ohms(ohms), f"{m.label} column {c + 1} current limiting")
+        s.link(cols[c], (res, "1"))
+        s.link(sinks[c], (res, "2"))
+        blk.put(res, "1", 3 + 5 * c, 7 * m.rows + 3, "down")
+        resistors.append(res)
+
+    s.pin_map.append(
+        f"{m.label} {m.rows}x{m.cols} LED matrix: rows (anodes) {', '.join(row_pins)}; columns (cathodes, through "
+        f"{resistors[0]}-{resistors[-1]}) {', '.join(col_pins)}. Light LED (r, c): row r HIGH, column c LOW. "
+        f"Scan one row at a time, fast (about 2 ms per row), so the whole picture looks steady."
+    )
+    b.notes.append(
+        f"Matrix resistors: (5 V - {LED_VF[m.color]:g} V) / {amps * 1000:.2g} mA, rounded up to {format_ohms(ohms)} "
+        f"= {per_led * 1000:.1f} mA per LED. A row pin feeds up to {m.cols} LEDs at once "
+        f"({per_led * m.cols * 1000:.0f} mA, within the {PIN_LIMIT_A * 1000:g} mA pin limit). Each row is lit 1/{m.rows} "
+        "of the time, so the LEDs look dimmer than when driven directly."
+    )
+    return blk, per_led * m.cols * 1000
 
 
 def _shift_registers(
