@@ -4,13 +4,17 @@ A beginner-friendly companion window for KiCad. Describe a circuit in plain Engl
 words into a fixed list of steps, builds the schematic from circuit rules and math, checks it with KiCad's
 own ERC, and explains every decision along the way.
 
-The engine is rule-based today (no LLM, no API key): your sentence only chooses which knob to turn, and every
-value comes from a formula you can read in the lessons. It builds one design family, a push button that lights
-an LED on an Arduino Uno, and edits to it.
+The engine is rule-based (no LLM, no API key needed): your sentence only chooses which knob to turn, and every
+value comes from a formula you can read in the lessons. There is an optional model for big Arduino Uno project
+descriptions, but it only picks parts and counts, and it's off unless you put a key in `backend/env/gemini.env`.
+
+It builds 9 kinds of circuit: LED, voltage divider, RC filter, 555 blinker, regulator, push button, transistor
+switch, Arduino Uno projects (joysticks, buttons, knobs, LEDs, buzzer) and an Arduino Nano with buttons and LEDs,
+which also gets C++ firmware.
 
 ## Run it
 
-Two terminals. KiCad 10 or newer must be installed (the service uses its command-line tools).
+KiCad 10 or newer must be installed (the service uses its command-line tools). Start the service first.
 
 ```bash
 # 1. the service
@@ -21,41 +25,49 @@ uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 ```bash
-# 2. the web UI, from the repo root
+# 2. the web UI, from the repo root (the source is in frontend/)
 npm install
 npm run dev     # http://127.0.0.1:5173 (the port is fixed on purpose, see Security)
 ```
 
-The **generate** button next to the prompt box is the general builder: type *"555 timer blinking a blue LED at 2 Hz on 9V"* and click it. (Enter, the arrow button, builds the Arduino lesson design instead.)
+Or build it once and let the service serve it, which is how the app window works (see CircuitForge window below):
 
-Try: *"When I press a button, a green LED should light up. Use an Arduino Uno."*, then
-*"make the LED brighter"*, *"use a blue LED"*, *"remove the debounce"*.
+```bash
+npm run build   # makes dist/, then open http://127.0.0.1:8765
+```
+
+`dist/` is not in git, so build it again after you pull.
+
+Try: *"555 timer blinking a blue LED at 2 Hz on 9V"*, or *"red LED blinks when the button is pressed once, green LED
+blinks if it's pressed twice within 0.5 s"* (that one makes a Nano and the code).
 
 | UI | Service endpoint | What happens |
 | --- | --- | --- |
-| **generate** button | `POST /api/generate`, `/api/generate/svg`, `/api/generate/save` | Builds any of 7 circuits (LED, divider, filter, 555 blinker, regulator, button, transistor), shows KiCad's drawing and ERC result, and opens it in KiCad |
-| Prompt box | `POST /api/plan` | Rules pick the knobs; formulas set the values; KiCad's ERC fills in the checks |
-| preview → schematic | `POST /api/design/svg` | KiCad draws the exact schematic |
-| open in kicad / Generate in KiCad | `POST /api/design/send` | Saves a **new** project in `~/Documents/KiCad/ai_generated/` (never overwrites) and opens it |
-| `kicad connected` | `GET /api/kicad/status` | Is KiCad installed here? |
+| Prompt box | `POST /api/generate` | Rules pick the template; formulas set the values; KiCad's ERC fills in the checks |
+| preview | `POST /api/desktop/preview` | KiCad draws the exact schematic |
+| place in my schematic | `POST /api/desktop/place` | Copies the circuit so you can paste it into the schematic you have open |
+| save / open pcb | `POST /api/desktop/save` | Saves a **new** project (never overwrites) and opens it |
+| export | `POST /api/desktop/export` | Pictures (SVG, PDF, PNG), the code and the KiCad project in `~/Downloads/CircuitForge` |
+| `kicad connected` | `GET /api/desktop/info` | Is KiCad installed here, and which project is open? |
 
-If the service isn't running, the UI says so and shows the start command. The bundled example keeps working.
+If the service isn't running, the UI says so. The sample class (Classroom card, "sample class") works without it.
 
 **Security.** The service has no login. It binds to `127.0.0.1`, answers only to `localhost` host names, and lets
-only `http://localhost:5173` and `http://127.0.0.1:5173` call it from a browser (set `ALLOWED_ORIGINS` in
+only the app window (port 8765) and the dev server (port 5173) call it from a browser (set `ALLOWED_ORIGINS` in
 `kicad-ai-extension/backend/.env` to use another port). It writes files and launches KiCad, so don't expose it
 on a network.
 
 ## Backend + KiCad plugin
 
-See [`kicad-ai-extension/README.md`](kicad-ai-extension/README.md) for full setup. The plugin needs KiCad 11 or a nightly.
+See [`kicad-ai-extension/README.md`](kicad-ai-extension/README.md) for full setup. On KiCad 10 the button only shows up in
+the PCB Editor. On KiCad 11 or a nightly it's in the Schematic Editor too.
 
 ```bash
 cd kicad-ai-extension/backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
-# then copy plugin/ to ~/Documents/KiCad/11.0/plugins/ai-schematic-generator and restart KiCad
+# then copy plugin/ to ~/Documents/KiCad/10.0/plugins/ai-schematic-generator and restart KiCad
 ```
 
 Health check: curl http://127.0.0.1:8765/api/health
@@ -63,10 +75,10 @@ Health check: curl http://127.0.0.1:8765/api/health
 
 Method	URL	What it does
 GET	http://127.0.0.1:8765/api/health	Backend status
-POST	http://127.0.0.1:8765/api/generate	Takes {"prompt": "..."} and returns the placeholder response
+POST	http://127.0.0.1:8765/api/generate	Takes {"prompt": "..."} and returns the circuit, the KiCad files, the ERC result, and the code and lesson if there are any
 GET	http://127.0.0.1:8765/docs	Interactive API docs
 GET	http://127.0.0.1:8765/openapi.json	Machine-readable API spec
-POST /api/generate/save. It generates the circuit, saves it as a new KiCad project, and opens it in the Schematic Editor.
+POST	http://127.0.0.1:8765/api/generate/save	Same as generate, but also saves it as a new KiCad project and opens it in the Schematic Editor
 
 
 Request test:
@@ -87,8 +99,8 @@ print('Saved to', out)
 
 ## CircuitForge window
 
-`npm run build` in the repo root builds the UI; the backend serves it, and the KiCad toolbar button opens it
-as its own app window. Describe a circuit, then place it in your schematic, save it, open the PCB, edit the
+`npm run build` in the repo root builds the UI (from `frontend/`); the backend serves it, and the KiCad toolbar button
+opens it as its own app window. Describe a circuit, then place it in your schematic, save it, open the PCB, edit the
 C++ (for microcontroller circuits), or export pictures + code.
 
 **Classroom** (top left): a class about the circuit you just generated, built by the backend from that
