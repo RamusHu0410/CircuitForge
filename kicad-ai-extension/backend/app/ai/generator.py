@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Parts only the system designer (Arduino Uno) builds. Without them, a behaviour prompt is a firmware project.
 _SYSTEM_PARTS = re.compile(
     r"\b(joysticks?|games?|players?|uno|buzzers?|speakers?|beepers?|scoreboard|score|scoring|football|soccer|"
-    r"pong|hockey|knobs?|potentiometers?|shift registers?|74hc595)\b",
+    r"pong|hockey|knobs?|potentiometers?|shift registers?|74hc595|matrix|matrices|grid)\b",
     re.I,
 )
 
@@ -86,6 +86,8 @@ class Generator:
                 return Generated(build_system(self.llm.plan(prompt)), "llm")
             except LlmError as exc:
                 logger.warning("language model unavailable, using rules: %s", exc)
+            except ValueError as exc:  # GenerationError or a spec limit: the model's plan can't be built
+                logger.warning("the language model's plan could not be built, using rules: %s", exc)
 
         if wants_system(prompt):
             return Generated(build_system(plan_system(prompt)), "rules")

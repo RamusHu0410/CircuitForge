@@ -14,7 +14,7 @@ from app.core.circuit_validator import validate_circuit
 from app.core.erc import find_kicad_cli
 from app.core.netlist_check import export_nets
 from app.core.schematic_renderer import render_schematic
-from app.schemas.system import Button, Joystick, LedGroup, SystemPlan
+from app.schemas.system import Button, Joystick, LedGroup, LedMatrix, SystemPlan
 
 FOOTBALL = "Build a two-player football game controlled by two joysticks, with LEDs indicating the game state and scoring."
 CLI = find_kicad_cli(None)
@@ -75,6 +75,63 @@ def test_small_project_drives_leds_directly() -> None:
     assert validate_circuit(spec).report.valid
 
 
+MATRIX_GAME = "two joysticks that control a 5by5 led, like a mini game"
+
+
+@pytest.mark.parametrize(
+    ("prompt", "size"),
+    [(MATRIX_GAME, (5, 5)), ("2 joysticks controlling a 5 x 5 LED matrix", (5, 5)),
+     ("an arduino with a 4 by 6 led grid", (4, 6)), ("arduino with an LED matrix and a button", (5, 5))],
+)
+def test_led_matrix_sizes_are_read(prompt: str, size: tuple[int, int]) -> None:
+    assert wants_system(prompt)
+    (matrix,) = [m for m in plan_system(prompt).modules if isinstance(m, LedMatrix)]
+    assert (matrix.rows, matrix.cols) == size
+
+
+def test_matrix_game_is_the_display_with_two_joysticks() -> None:
+    plan = plan_system(MATRIX_GAME)
+    assert [type(m).__name__ for m in plan.modules].count("Joystick") == 2
+    assert not any(isinstance(m, LedGroup) for m in plan.modules)  # the grid replaces ball/score LEDs
+    spec = build_system(plan)
+    resolved = validate_circuit(spec)
+    assert resolved.report.valid, resolved.report.errors
+    assert sum(c.kind == "led" for c in spec.components) == 25
+    assert sum(c.kind == "resistor" for c in spec.components) == 5  # one per column
+    uno_pins = [pin for pins in resolved.net_pins.values() for ref, pin in pins if ref == "A1"]
+    signal = [p for p in uno_pins if p not in ("5", "6", "7", "29")]
+    assert len(signal) == len(set(signal)) == 4 + 2 + 10  # joystick axes, joystick buttons, rows + columns
+    for r in range(1, 6):  # LED (r, c): anode on row r, cathode on column c's line
+        row = set(resolved.net_pins[f"MAT_R{r}"])
+        assert sum(1 for ref, _ in row if ref.startswith("D")) == 5
+
+
+def test_matrix_row_current_stays_under_the_pin_limit() -> None:
+    spec = build_system(SystemPlan(title="x", modules=[LedMatrix(label="M", rows=8, cols=8)]))
+    ohms = next(float(c.value.rstrip("k")) * (1000 if c.value.endswith("k") else 1) for c in spec.components if c.kind == "resistor")
+    assert 8 * (5 - 2.0) / ohms <= 0.020
+
+
+def test_too_big_matrix_is_rejected() -> None:
+    with pytest.raises(GenerationError, match="8x8"):
+        plan_system("arduino with a 10x10 led matrix")
+    with pytest.raises(GenerationError, match="pins"):  # 16 matrix pins + 2 joysticks don't fit an Uno
+        build_system(plan_system("two joysticks and an 8x8 led matrix"))
+
+
+@pytest.mark.skipif(CLI is None, reason="kicad-cli not installed")
+def test_matrix_game_passes_kicad_erc_and_netlist() -> None:
+    from app.core.erc import run_erc
+
+    resolved = validate_circuit(build_system(plan_system(MATRIX_GAME)))
+    files = render_schematic(resolved)
+    erc = run_erc(files, CLI)
+    assert erc.ran and erc.error_count == 0, [v.description for v in erc.violations]
+    drawn = set(export_nets(files, CLI).values())
+    for net in ("MAT_R1", "MAT_K3", "MAT_C5"):
+        assert frozenset(resolved.net_pins[net]) in drawn, net
+
+
 def _fake(reply: str):
     def transport(url, headers, body, timeout):
         assert headers["x-api-key"] == "k" and url.endswith("/v1/messages")
@@ -102,6 +159,13 @@ def test_bad_llm_reply_falls_back_to_rules() -> None:
     assert gen.generate(FOOTBALL).source == "rules"
     with pytest.raises(LlmError):
         LlmPlanner("k", "m", transport=_fake("no json")).plan("x")
+
+
+def test_unbuildable_llm_plan_falls_back_to_rules() -> None:
+    too_big = json.dumps({"title": "x", "modules": [{"type": "led_group", "label": f"G{i}", "count": 16} for i in range(3)]})
+    gen = Generator(LlmPlanner("k", "m", transport=_fake(too_big)))
+    result = gen.generate(MATRIX_GAME)
+    assert result.source == "rules" and sum(c.kind == "led" for c in result.spec.components) == 25
 
 
 def test_llm_off_without_key() -> None:
@@ -134,3 +198,8 @@ def test_translate_endpoint_and_build_from_plan(client) -> None:
     g = client.post("/api/generate", json={"prompt": FOOTBALL, "plan": body["plan"]})
     assert g.status_code == 200 and g.json()["generator"] == "plan"
     assert client.post("/api/translate", json={"prompt": "5V regulator from 12V"}).status_code == 422
+
+
+def test_translate_describes_a_matrix(client) -> None:
+    body = client.post("/api/translate", json={"prompt": MATRIX_GAME}).json()
+    assert 'led_matrix(label="MAT", rows=5, cols=5, color="red"' in " ".join(body["calls"])

@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 from app.ai.circuit_generator import LED_VF, GenerationError
-from app.schemas.system import Button, Buzzer, Joystick, Knob, LedGroup, SystemPlan
+from app.schemas.system import Button, Buzzer, Joystick, Knob, LedGroup, LedMatrix, SystemPlan
 
 _NUMBERS = {
     "a": 1, "an": 1, "one": 1, "single": 1, "two": 2, "three": 3, "four": 4,
@@ -24,6 +24,10 @@ _TRIGGER = re.compile(
     r"\b(joysticks?|game|games|players?|arduino|uno|microcontrollers?|mcu|buzzers?|speakers?|beepers?|"
     r"scoreboard|score|scoring|football|soccer|pong|hockey|knobs?|potentiometers?)\b"
 )
+# "5x5", "5 x 5", "5by5", "5 by 5" (rows x columns), only counted when the text is about LEDs or a display.
+_GRID = re.compile(r"\b(\d{1,2})\s*(?:x|×|by)\s*(\d{1,2})\b")
+_DISPLAY_WORDS = re.compile(r"\b(leds?|lights?|matrix|matrices|grid|display|screen|pixels?)\b")
+DEFAULT_MATRIX = (5, 5)
 _BALL_GAMES = re.compile(r"\b(football|soccer|pong|hockey|ball)\b")
 _SCORE_COLORS = ["green", "red", "blue", "orange", "white", "yellow"]
 DEFAULT_BALL_LEDS = 7
@@ -31,7 +35,22 @@ DEFAULT_SCORE_LEDS = 3
 
 
 def wants_system(prompt: str) -> bool:
-    return bool(_TRIGGER.search(prompt.lower()))
+    text = prompt.lower()
+    return bool(_TRIGGER.search(text)) or find_matrix(text) is not None
+
+
+def find_matrix(text: str) -> tuple[int, int] | None:
+    """(rows, cols) of an LED grid the text asks for: '5x5 LEDs', 'a 5 by 5 grid', 'an LED matrix' (5x5)."""
+    if not _DISPLAY_WORDS.search(text):
+        return None
+    if m := _GRID.search(text):
+        rows, cols = int(m.group(1)), int(m.group(2))
+        if not (2 <= rows <= 8 and 2 <= cols <= 8):
+            raise GenerationError("An LED matrix can be 2x2 up to 8x8 (one controller pin per row and per column).")
+        return rows, cols
+    if re.search(r"\b(matrix|matrices)\b", text) and re.search(r"\b(leds?|lights?)\b", text):
+        return DEFAULT_MATRIX
+    return None
 
 
 def _count(token: str) -> int:
@@ -73,6 +92,8 @@ def plan_system(prompt: str) -> SystemPlan:
     joysticks = _find_count(text, r"joysticks?")
     if joysticks is None and re.search(r"\bjoysticks?\b", text):
         joysticks = players or 1
+    elif joysticks == 1 and players and re.search(r"\b(each|every|per) player\b", text):
+        joysticks = players  # "each player has a joystick"
     if joysticks:
         for n in range(1, joysticks + 1):
             label = f"P{n}" if (game or joysticks > 1) else "JOY"
@@ -91,12 +112,18 @@ def plan_system(prompt: str) -> SystemPlan:
         modules.append(Button(label=f"BTN{n}" if (buttons or 0) > 1 else "BTN"))
 
     # Outputs
+    matrix = find_matrix(text)
     leds_mentioned = bool(re.search(r"\bleds?\b|\blights?\b|\bindicat", text))
     explicit_leds = _find_count(text, r"leds?")
     scoring = bool(re.search(r"\bscor", text))
     default_color = _color(text, "red")
 
-    if game:
+    if matrix:
+        # The grid is the display (for a game it shows the ball, players and score), so no separate LED groups.
+        rows, cols = matrix
+        modules.append(LedMatrix(label="MAT", rows=rows, cols=cols, color=default_color,
+                                 purpose="game display" if game else f"{rows}x{cols} LED display"))
+    elif game:
         ball = bool(sport or _BALL_GAMES.search(text))
         if ball and (leds_mentioned or scoring or sport):
             size = explicit_leds if explicit_leds and explicit_leds >= 3 else DEFAULT_BALL_LEDS
@@ -151,6 +178,8 @@ def plan_to_calls(plan: SystemPlan) -> list[str]:
         args = [f'label="{m.label}"']
         if isinstance(m, LedGroup):
             args += [f"count={m.count}", f'color="{m.color}"']
+        elif isinstance(m, LedMatrix):
+            args += [f"rows={m.rows}", f"cols={m.cols}", f'color="{m.color}"']
         if m.purpose:
             args.append(f'purpose="{m.purpose}"')
         calls.append(f"{m.type}({', '.join(args)})")
