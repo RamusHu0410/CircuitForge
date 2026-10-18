@@ -106,6 +106,50 @@ def test_matrix_game_is_the_display_with_two_joysticks() -> None:
         assert sum(1 for ref, _ in row if ref.startswith("D")) == 5
 
 
+UNO_PROJECTS = [
+    MATRIX_GAME,
+    FOOTBALL,
+    "Arduino with a joystick controlling 4 LEDs and a buzzer",
+    "two player pong game with 2 knobs, a buzzer and a button",
+    "arduino with an 8x8 led matrix",
+]
+
+
+def _unwired(prompt: str) -> list[tuple[str, str, str]]:
+    from app.core.geometry import Grid
+    from app.core.schematic_renderer import _hinted_layout
+    from app.core.schematic_wiring import wire_nets
+
+    resolved = validate_circuit(build_system(plan_system(prompt)))
+    grid = Grid()
+    placed, buses = _hinted_layout(resolved, grid)
+    wiring = wire_nets(resolved, placed, grid, buses)
+    return [(net, s.ref, s.number) for net, nw in wiring.nets.items() if net not in ("GND", "+5V")
+            for s in nw.sites if not s.connected]
+
+
+@pytest.mark.parametrize("prompt", UNO_PROJECTS)
+def test_uno_projects_are_wired_to_the_uno(prompt: str) -> None:
+    """Every signal is a real wire from the Uno (GND and +5V are power symbols)."""
+    unwired = _unwired(prompt)
+    # The football design is the densest (two shift registers); one pin may fall back to a label pair.
+    assert len(unwired) <= (1 if prompt == FOOTBALL else 0), unwired
+
+
+@pytest.mark.skipif(CLI is None, reason="kicad-cli not installed")
+@pytest.mark.parametrize("prompt", UNO_PROJECTS)
+def test_uno_projects_pass_erc_and_every_net_matches(prompt: str) -> None:
+    from app.core.erc import run_erc
+
+    resolved = validate_circuit(build_system(plan_system(prompt)))
+    files = render_schematic(resolved)
+    erc = run_erc(files, CLI)
+    assert erc.ran and erc.violations == [], [f"{v.type}: {v.items}" for v in erc.violations]
+    drawn = set(export_nets(files, CLI).values())
+    for net, pins in resolved.net_pins.items():  # GND and +5V included
+        assert frozenset(pins) in drawn, net
+
+
 def test_matrix_row_current_stays_under_the_pin_limit() -> None:
     spec = build_system(SystemPlan(title="x", modules=[LedMatrix(label="M", rows=8, cols=8)]))
     ohms = next(float(c.value.rstrip("k")) * (1000 if c.value.endswith("k") else 1) for c in spec.components if c.kind == "resistor")

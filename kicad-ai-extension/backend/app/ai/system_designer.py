@@ -37,6 +37,9 @@ UNO_GND_PINS = ("6", "7", "29")
 UNO_5V_PIN = "5"
 ANALOG_PINS = [("A0", "9"), ("A1", "10"), ("A2", "11"), ("A3", "12"), ("A4", "13"), ("A5", "14")]
 DIGITAL_PINS = [(f"D{n}", str(15 + n)) for n in range(2, 14)]  # D2..D13
+RIGHT_EDGE = {pin for _, pin in ANALOG_PINS}  # A0..A5 are drawn on the symbol's right edge, D0..D13 on its left
+RAIL_PINS = {"5", *UNO_GND_PINS}
+UNO_HALF_WIDTH = 7  # grid cells from the Uno's centre to the ends of its side pins
 SHIFT_OUTPUT_PINS = ["15", "1", "2", "3", "4", "5", "6", "7"]  # QA..QH
 MAX_SHIFT_REGISTERS = 4
 RESERVED_NETS = {"GND", "+5V", "SR_DATA", "SR_CLK", "SR_LATCH"}
@@ -55,6 +58,7 @@ class _Block:
     width: int
     height: int
     items: list[tuple[str, str, int, int, str | None]] = field(default_factory=list)  # ref, pin, dc, dr, direction
+    buses: dict[str, int] = field(default_factory=dict)  # net -> row (relative), drawn as one straight wire
 
     def put(self, ref: str, pin: str, dc: int, dr: int, direction: str | None = None) -> None:
         self.items.append((ref, pin, dc, dr, direction))
@@ -68,6 +72,8 @@ class _System:
         self.used_nets: set[str] = set(RESERVED_NETS)
         self.blocks: list[_Block] = []
         self.pin_map: list[str] = []
+        self.wired_groups: dict[str, list[str]] = {}  # remote net -> refs wired together on it
+        self.crossing: list[str] = []  # nets allowed to cross each other
 
     # -- nets ------------------------------------------------------------------------------
 
@@ -132,13 +138,16 @@ def build_system(plan: SystemPlan) -> CircuitSpec:
     registers = -(-shifted_leds // 8)
     if registers > MAX_SHIFT_REGISTERS:
         raise GenerationError(f"That needs {registers} shift registers; the limit is {MAX_SHIFT_REGISTERS}.")
-    digital_iter = iter(pool)
+    free = list(pool)  # left-edge pins (D2..D13) first, then the spare right-edge analog pins (A5 first)
 
     def analog() -> tuple[str, str]:
         return next(analog_iter)
 
-    def digital() -> tuple[str, str]:
-        return next(digital_iter)
+    def digital(right: bool = False) -> tuple[str, str]:
+        """Next free pin. Inputs drawn on the Uno's right (beside the analog pins) take a spare A pin if there is one."""
+        if right and free[-1][0].startswith("A"):
+            return free.pop()
+        return free.pop(0)
 
     s = _System(plan)
     b = s.b
@@ -161,11 +170,11 @@ def build_system(plan: SystemPlan) -> CircuitSpec:
                 s.link("+5V", (pot, "1"))
                 s.link("GND", (pot, "3"))
                 s.link(net, (pot, "2"), (uno, pin))
-                blk.put(pot, "1", dc, 5)
+                blk.put(pot, "2", dc + 2, 7)  # anchored by the wiper: the only pin on the grid that needs a wire
                 names[axis] = pin_name
             sw = b.add("SW", "push_button", "SW_Push", f"{m.label} joystick button")
             net = s.net_name(f"{m.label}_BTN")
-            btn_name, pin = digital()
+            btn_name, pin = digital(right=True)
             s.link(net, (sw, "2"), (uno, pin))
             s.link("GND", (sw, "1"))
             blk.put(sw, "2", 22, 5, "down")
@@ -179,14 +188,14 @@ def build_system(plan: SystemPlan) -> CircuitSpec:
             s.link("+5V", (pot, "1"))
             s.link("GND", (pot, "3"))
             s.link(net, (pot, "2"), (uno, pin))
-            blk.put(pot, "1", 3, 5)
+            blk.put(pot, "2", 5, 7)  # anchored by the wiper (its ends are power symbols)
             s.pin_map.append(f"{m.label} knob: wiper={pin_name} (analogRead).")
             input_blocks.append(blk)
         elif isinstance(m, Button):
             blk = _Block(f"{m.label} button", 10, 15)
             sw = b.add("SW", "push_button", "SW_Push", m.purpose or f"{m.label} button")
             net = s.net_name(m.label)
-            pin_name, pin = digital()
+            pin_name, pin = digital(right=True)
             s.link(net, (sw, "2"), (uno, pin))
             s.link("GND", (sw, "1"))
             blk.put(sw, "2", 5, 5, "down")
@@ -276,15 +285,43 @@ def build_system(plan: SystemPlan) -> CircuitSpec:
         )
 
     # -- layout ---------------------------------------------------------------------------------
-    b.place(uno, "6", UNO_COL, UNO_ROW + 11)
-    captions = [Caption(col=UNO_COL - 9, row=UNO_ROW - 14, text="Arduino Uno R3 (controller)")]
-    x, y, row_height = FLOW_COL, FLOW_ROW, 0
-    for blk in input_blocks + output_blocks:
-        if x > FLOW_COL and x + blk.width > FLOW_COL + FLOW_WIDTH:
-            x, y, row_height = FLOW_COL, y + row_height + 1, 0
+    # Every signal is a real wire from the Uno. The Uno's digital pins (D2..D13) are on its left edge
+    # and the analog ones (A0..A5) on its right, so each block goes on the side of the pins it uses:
+    # outputs like an LED matrix to the left, joysticks and knobs to the right. Signal wires may
+    # cross each other (never join); GND and +5V are power symbols.
+    def side(blk: _Block) -> str:
+        refs = {item[0] for item in blk.items}
+        votes = [p.pin in RIGHT_EDGE for pins in b.nets.values() if any(q.ref in refs for q in pins)
+                 for p in pins if p.ref == uno and p.pin not in RAIL_PINS]
+        return "right" if votes.count(True) >= votes.count(False) else "left"
+
+    blocks = input_blocks + output_blocks
+    left_blocks = [blk for blk in blocks if side(blk) == "left"]
+    right_blocks = [blk for blk in blocks if side(blk) == "right"]
+    left_wires = sum(1 for pins in b.nets.values() for p in pins if p.ref == uno and p.pin not in RIGHT_EDGE | RAIL_PINS)
+    lane = left_wires + 4 if left_blocks else 0  # room beside the Uno for each wire to turn on its own column
+    left_width = max((blk.width for blk in left_blocks), default=0)
+    uno_col = UNO_COL + (left_width + lane if left_blocks else 0)
+    flow_col = uno_col + FLOW_COL - UNO_COL
+    captions = [Caption(col=uno_col - 9, row=UNO_ROW - 14, text="Arduino Uno R3 (controller)")]
+
+    def put(blk: _Block, x: int, y: int) -> None:
         for ref, pin, dc, dr, direction in blk.items:
             b.place(ref, pin, x + dc, y + dr, direction)
+        for net, dr in blk.buses.items():
+            b.bus(net, y + dr)
         captions.append(Caption(col=x, row=y, text=blk.title))
+
+    b.place(uno, "6", uno_col, UNO_ROW + 11)
+    y = FLOW_ROW
+    for blk in left_blocks:  # stacked, right-aligned toward the Uno
+        put(blk, uno_col - UNO_HALF_WIDTH - lane - blk.width, y)
+        y += blk.height + 2
+    x, y, row_height = flow_col, FLOW_ROW, 0
+    for blk in right_blocks:
+        if x > flow_col and x + blk.width > flow_col + FLOW_WIDTH:
+            x, y, row_height = flow_col, y + row_height + 1, 0
+        put(blk, x, y)
         x += blk.width + 2
         row_height = max(row_height, blk.height)
 
@@ -305,10 +342,13 @@ def build_system(plan: SystemPlan) -> CircuitSpec:
         b.notes.append(f"Buzzer: {BUZZER_SERIES_OHMS} ohm series resistor keeps pin current under 20 mA. Use a transistor for a louder buzzer.")
 
     spec = b.build()
+    rails = [net for net in s.remote if net in ("GND", "+5V")]
     layout = Layout(
         placements=b.placements,
-        remote_nets=s.remote,
+        buses=b.buses,
+        remote_nets=rails,  # power symbols at every pin
         hub=uno,
+        crossing_nets=[net for net in b.nets if net not in rails],
         captions=captions,
     )
     return spec.model_copy(update={"layout": layout})
@@ -340,24 +380,27 @@ def _led_matrix(s: _System, uno: str, m: LedMatrix, digital) -> tuple[_Block, fl
         s.link(net, (uno, pin))
         col_pins.append(name)
 
-    # Grid cells: LEDs 5 apart across and 7 down (anode on top, cathode 3 below, so the pin stubs and
-    # labels of neighbouring rows stay apart), then the column resistors in a row underneath.
-    blk = _Block(f"{m.label} {m.rows}x{m.cols} LED matrix", 5 * m.cols + 2, 7 * m.rows + 9)
-    first_led = None
+    # Drawn like a real matrix: each row is one straight wire along its anodes (a label at its left end
+    # connects it to the Uno), each column a wire from its cathodes down to its resistor, crossing the
+    # rows without joining them. Grid cells: LEDs 6 apart across and 7 down (anode on top, cathode 3
+    # below), each row's wire one cell above its anodes, the resistors under the last row.
+    left = 2
+    blk = _Block(f"{m.label} {m.rows}x{m.cols} LED matrix", left + 6 * m.cols, 7 * m.rows + 9)
     for r in range(m.rows):
         for c in range(m.cols):
             d = b.add("D", "led", m.color.capitalize(), f"{m.label} row {r + 1}, column {c + 1}")
-            first_led = first_led or d
             s.link(rows[r], (d, "A"))
-            s.link(sinks[c], (d, "K"))
-            blk.put(d, "2", 3 + 5 * c, 3 + 7 * r, "down")
+            s.local(sinks[c], (d, "K"))
+            blk.put(d, "2", left + 6 * c, 3 + 7 * r, "down")
+        blk.buses[rows[r]] = 2 + 7 * r  # one cell above the anodes
     resistors = []
     for c in range(m.cols):
         res = b.add("R", "resistor", format_ohms(ohms), f"{m.label} column {c + 1} current limiting")
+        s.local(sinks[c], (res, "2"))
         s.link(cols[c], (res, "1"))
-        s.link(sinks[c], (res, "2"))
-        blk.put(res, "1", 3 + 5 * c, 7 * m.rows + 3, "down")
+        blk.put(res, "2", left + 6 * c, 7 * m.rows + 2, "down")  # column wire comes in on top, Uno label below
         resistors.append(res)
+    s.crossing += rows + sinks
 
     s.pin_map.append(
         f"{m.label} {m.rows}x{m.cols} LED matrix: rows (anodes) {', '.join(row_pins)}; columns (cathodes, through "

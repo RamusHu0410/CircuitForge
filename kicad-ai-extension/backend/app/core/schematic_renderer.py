@@ -335,7 +335,7 @@ def _attach_tip(
     """Reserve a short stub off the net's wire tree for a power symbol/flag; returns the tip cell."""
     router = wiring.router
     key = (lambda c: (c[1], c[0])) if direction == UP else (lambda c: (-c[1], c[0]))
-    for cell in sorted((c for c in nw.tree if c not in wiring.pin_cells), key=key):
+    for cell in sorted((c for c in nw.tree if c not in wiring.pin_cells and c not in router.crossings), key=key):
         tip = (cell[0] + direction[0], cell[1] + direction[1])
         beyond = (tip[0] + direction[0], tip[1] + direction[1])
         beyond2 = (beyond[0] + direction[0], beyond[1] + direction[1])
@@ -404,13 +404,29 @@ def _draw_remote_net(ctx: _Ctx, grid: Grid, net: str, nw: NetWiring, symbol_nets
     it is a rail, so only the other pins get a symbol of their own.
     """
     is_rail = net in POWER_SYMBOLS
-    for site in nw.sites:
+
+    def label_at(site: PinSite) -> None:
         point = grid.point(site.label_cell) if site.label_cell else site.point
-        if is_rail and not site.connected:
+        # Horizontal text reads best, so vertical pins get their label pointing left.
+        _label(ctx, net, point, site.out if site.out in (LEFT, RIGHT) else LEFT)
+
+    for site in nw.sites:
+        if site.connected:
+            continue
+        if is_rail:
+            point = grid.point(site.label_cell) if site.label_cell else site.point
             _power_symbol(ctx, POWER_SYMBOLS[net], net, point, site.out)
-        elif not is_rail or net not in symbol_nets:
-            # Horizontal text reads best, so vertical pins get their label pointing left.
-            _label(ctx, net, point, site.out if site.out in (LEFT, RIGHT) else LEFT)
+        else:
+            label_at(site)
+    # The wired pins (the hub's, or a wired group) share one wire, so one label names it.
+    wired = [s for s in nw.sites if s.connected]
+    if wired and (not is_rail or net not in symbol_nets):
+        first = min(wired, key=lambda s: (s.point[0], s.point[1]))
+        if is_rail:  # a rail is named by its power symbol (a text label of the same name makes ERC warn)
+            point = grid.point(first.label_cell) if first.label_cell else first.point
+            _power_symbol(ctx, POWER_SYMBOLS[net], net, point, first.out)
+        else:
+            label_at(first)
 
 
 # --- Document -------------------------------------------------------------------------------
@@ -505,7 +521,9 @@ def render_schematic(
             else:
                 _label(ctx, net, point, site.out)
         if nw.tree and net not in symbol_nets and (nw.failed_sites or len(nw.sites) >= 3):
-            picked = _pick_label_node(wiring, nw, nodes)
+            # The name goes on the wired part; the stubs of pins that failed already carry their own label.
+            failed_cells = {c for s in nw.failed_sites for c in (s.cell, s.stub) if c is not None}
+            picked = _pick_label_node(wiring, nw, nodes - failed_cells)
             if picked:
                 _label(ctx, net, grid.point(picked[0]), picked[1])
 

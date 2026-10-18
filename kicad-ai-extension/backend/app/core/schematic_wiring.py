@@ -86,10 +86,13 @@ def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, 
     layout = circuit.spec.layout
     remote = set(layout.remote_nets) if layout else set()
     hub = layout.hub if layout else None
+    groups = {net: set(refs) for net, refs in layout.wired_groups.items()} if layout else {}
 
     def is_remote(net: str, site: PinSite) -> bool:
         """True if the pin is drawn by name (label / power symbol) rather than wired."""
-        return net in remote and site.ref != hub
+        if net not in remote:
+            return False
+        return site.ref not in groups[net] if net in groups else site.ref != hub
 
     sites: dict[tuple[str, str], PinSite] = {}
     all_cells: list[Cell] = []
@@ -114,7 +117,7 @@ def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, 
     i_max = max(c[0] for c in all_cells) + MARGIN
     j_min = min([c[1] for c in all_cells] + list(buses.values())) - MARGIN
     j_max = max([c[1] for c in all_cells] + list(buses.values())) + MARGIN
-    router = WireRouter((i_min, j_min, i_max, j_max))
+    router = WireRouter((i_min, j_min, i_max, j_max), crossable=set(layout.crossing_nets) if layout else set())
 
     # Symbol bodies (and their pin lines) are obstacles; pin end points are not.
     pin_cells = {s.cell for s in sites.values() if s.cell is not None}
@@ -141,6 +144,14 @@ def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, 
         else:
             router.owner[site.cell] = site.net
 
+    # Reserve every pin's stub (the first cell outside it) for its own net before any wire is routed,
+    # so a net routed early can never run through the spot another pin needs to get out.
+    for site in sites.values():
+        if site.cell is not None and site.net is not None:
+            tip = (site.cell[0] + site.out[0], site.cell[1] + site.out[1])
+            if router.in_bounds(tip) and tip not in pin_cells and router.owner.get(tip) is None:
+                router.owner[tip] = site.net
+
     nets: dict[str, NetWiring] = {}
     net_sites: dict[str, list[PinSite]] = {name: [] for name in circuit.net_pins}
     for key, site in sites.items():
@@ -161,7 +172,7 @@ def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, 
             continue  # a one-pin net has nothing to connect to; the caller labels it
 
         tips: dict[Cell, list[PinSite]] = {}
-        for site in nw.sites:
+        for site in nw.sites:  # the stub cells were reserved for their nets above
             if site.cell is None:
                 continue
             tip = (site.cell[0] + site.out[0], site.cell[1] + site.out[1])
@@ -217,5 +228,17 @@ def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, 
         # Pins drawn by name keep their short stub, but it is not part of the net's wire tree.
         remote_cells = {c for s in nw.sites if is_remote(name, s) for c in (s.cell, s.stub) if c is not None}
         nw.tree = tree - remote_cells
+
+        # A wired group gets one label, at its leftmost pin, reading leftwards (see the renderer). Keep
+        # later wires out of that text.
+        wired = [s for s in nw.sites if s.connected and s.label_cell]
+        if name in groups and wired:
+            site = min(wired, key=lambda s: (s.point[0], s.point[1]))
+            cell = site.label_cell
+            step = site.out if site.out in ((1, 0), (-1, 0)) else (-1, 0)
+            for k in range(1, math.ceil(len(name) / G) + 2):
+                probe = (cell[0] + step[0] * k, cell[1] + step[1] * k)
+                if router.owner.get(probe) is None:
+                    router.owner[probe] = BLOCKED
 
     return Wiring(router=router, sites=sites, nets=nets, no_connects=no_connects, pin_cells=pin_cells)

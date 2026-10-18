@@ -110,6 +110,17 @@ class Layout(_Strict):
     hub: Reference | None = Field(
         default=None, description="Component (e.g. the microcontroller) whose pins on remote nets stay wired"
     )
+    wired_groups: dict[NetName, list[Reference]] = Field(
+        default_factory=dict,
+        description=(
+            "For a remote net: the components whose pins on it are wired together (instead of the hub's), "
+            "with one label for the group. E.g. the LEDs on one row of a matrix."
+        ),
+    )
+    crossing_nets: list[NetName] = Field(
+        default_factory=list,
+        description="Nets whose wires may cross each other (straight through, never joining), like a matrix's rows and columns",
+    )
     captions: list[Caption] = Field(default_factory=list, max_length=60)
 
 

@@ -88,3 +88,36 @@ def test_corner_splits_wires() -> None:
     segments, junctions, _ = edges_to_wires(edges, terminals={(0, 0), (1, 2)})
     assert sorted(tuple(sorted(s)) for s in segments) == [((0, 0), (1, 0)), ((1, 0), (1, 2))]
     assert junctions == set()
+
+
+def _wall(r: WireRouter, net: str = "B", x: int = 4, height: int = 8) -> None:
+    """A straight vertical wire of `net` through the whole grid at column x."""
+    cells = [(x, j) for j in range(height)]
+    r.commit_path(net, cells)
+
+
+def test_crossable_nets_cross_straight_through() -> None:
+    r = WireRouter((0, 0, 11, 7), crossable={"A", "B"})
+    _wall(r)
+    path = r.find_path("A", (0, 3), {(8, 3)})
+    assert path == [(i, 3) for i in range(9)]  # straight across the wall
+    r.commit_path("A", path)
+    assert r.crossings == {(4, 3)} and r.owner[(4, 3)] == "B"
+    # Neither net may now turn, join or end on the crossing.
+    assert not r.can_use((4, 3), "A") and not r.can_use((4, 3), "B")
+    a_segments, a_junctions, _ = edges_to_wires(r.edges["A"], {(0, 3), (8, 3)})
+    assert a_segments == [((0, 3), (8, 3))] and not a_junctions  # one wire, no junction at the crossing
+
+
+def test_nets_that_are_not_crossable_still_never_cross() -> None:
+    r = WireRouter((0, 0, 11, 7), crossable={"A"})  # B is not crossable
+    _wall(r)
+    assert r.find_path("A", (0, 3), {(8, 3)}) is None
+
+
+def test_no_crossing_at_a_corner_or_tee_of_the_other_net() -> None:
+    r = WireRouter((0, 0, 11, 7), crossable={"A", "B"})
+    _wall(r)
+    r.commit_path("B", [(4, 3), (5, 3)])  # B now has a tee at (4, 3)
+    path = r.find_path("A", (0, 3), {(8, 3)})
+    assert path is not None and (4, 3) not in path

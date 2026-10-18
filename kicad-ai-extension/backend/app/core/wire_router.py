@@ -4,6 +4,11 @@ The router never lets two different nets share a grid cell, so wires of
 different nets can never touch, cross, or end on each other by accident. If a
 connection cannot be routed, the caller falls back to net labels, so a
 failed route never produces a wrong circuit.
+
+One exception, only for nets marked crossable (a matrix's rows and columns): a
+wire may pass straight through another crossable net's straight wire. KiCad only
+joins wires at their ends, so two wires crossing in their middles stay separate.
+A crossing cell can never become a corner, a tee or an end for either net.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from app.core.geometry import Cell
 BLOCKED = "#"
 _STEPS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 TURN_COST = 3
+CROSS_COST = 4  # crossing is allowed but not free, so short detours still win
 
 
 def _edge(a: Cell, b: Cell) -> tuple[Cell, Cell]:
@@ -24,13 +30,15 @@ def _edge(a: Cell, b: Cell) -> tuple[Cell, Cell]:
 
 
 class WireRouter:
-    def __init__(self, bounds: tuple[int, int, int, int]) -> None:
+    def __init__(self, bounds: tuple[int, int, int, int], crossable: set[str] | None = None) -> None:
         """bounds = (imin, jmin, imax, jmax), inclusive."""
         self.bounds = bounds
         self.owner: dict[Cell, str] = {}
         self.edges: dict[str, set[tuple[Cell, Cell]]] = defaultdict(set)
         # Pin end points: a wire may start next to one (via its stub) but never pass through it.
         self.no_pass: set[Cell] = set()
+        self.crossable: set[str] = crossable or set()
+        self.crossings: set[Cell] = set()  # cells where two nets cross; nothing else may use them
 
     # --- Occupancy --------------------------------------------------------------------
 
@@ -42,7 +50,19 @@ class WireRouter:
         self.owner.setdefault(cell, BLOCKED)
 
     def can_use(self, cell: Cell, net: str) -> bool:
-        return self.in_bounds(cell) and cell not in self.no_pass and self.owner.get(cell, net) == net
+        return self.in_bounds(cell) and cell not in self.no_pass and cell not in self.crossings and self.owner.get(cell, net) == net
+
+    def can_cross(self, cell: Cell, net: str, step: int) -> bool:
+        """True if `net`, moving in direction `step`, may pass straight through `cell` across another net's wire."""
+        other = self.owner.get(cell)
+        if net not in self.crossable or other is None or other == net or other not in self.crossable:
+            return False
+        if not self.in_bounds(cell) or cell in self.no_pass or cell in self.crossings:
+            return False
+        di, dj = _STEPS[step]
+        across = {(cell[0] + dj, cell[1] + di), (cell[0] - dj, cell[1] - di)}  # the neighbours perpendicular to us
+        theirs = {b if a == cell else a for a, b in self.edges[other] if cell in (a, b)}
+        return theirs == across  # their wire runs straight through, perpendicular to ours
 
     def claim(self, cell: Cell, net: str) -> bool:
         if not self.can_use(cell, net):
@@ -68,17 +88,24 @@ class WireRouter:
             cost, _, cell, heading = heapq.heappop(heap)
             if best.get((cell, heading), cost) < cost:
                 continue
-            if cell in targets:
+            crossing = self.owner.get(cell, net) != net  # passing through another net's wire
+            if cell in targets and not crossing and cell not in self.crossings:
                 path, state = [], (cell, heading)
                 while state is not None:
                     path.append(state[0])
                     state = parent[state]
                 return path[::-1]
             for k, (di, dj) in enumerate(_STEPS):
+                if crossing and k != heading:
+                    continue  # no turning on a crossing
                 nxt = (cell[0] + di, cell[1] + dj)
-                if not self.can_use(nxt, net):
+                if self.can_use(nxt, net):
+                    extra = 0
+                elif self.can_cross(nxt, net, k):
+                    extra = CROSS_COST
+                else:
                     continue
-                new_cost = cost + 1 + (TURN_COST if heading not in (-1, k) else 0)
+                new_cost = cost + 1 + extra + (TURN_COST if heading not in (-1, k) else 0)
                 key = (nxt, k)
                 if new_cost < best.get(key, 1 << 30):
                     best[key] = new_cost
@@ -88,6 +115,9 @@ class WireRouter:
 
     def commit_path(self, net: str, path: list[Cell]) -> None:
         for cell in path:
+            if self.owner.get(cell, net) != net:
+                self.crossings.add(cell)  # stays the other net's cell; now locked for everyone
+                continue
             self.owner[cell] = net
         for a, b in zip(path, path[1:]):
             self.add_edge(net, a, b)
