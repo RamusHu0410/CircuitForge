@@ -2,6 +2,9 @@
 fastapi==0.143.3
 uvicorn[standard]==0.54.0
 
+# CircuitForge desktop window (native WebKit/WebView2 window around the UI)
+pywebview==6.2.1
+
 # Data validation and settings
 pydantic==2.14.1
 pydantic-settings==2.16.0

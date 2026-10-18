@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Baby, GraduationCap, Lightbulb, Microscope, Zap } from "lucide-react";
-import type { Level, Project } from "../../types";
+import type { Level, ExampleProject } from "../../types";
 import { LOGIC, dischargeTime, fmtOhms, fmtSI, ledDesign, tau, texOhms, texSI, trim } from "../../math";
 import { EXPLAIN } from "../../data/explain";
 import { Tex } from "../Tex";
@@ -367,7 +367,7 @@ function KclNode({ i }: { i: number }) {
     <svg viewBox="0 0 340 150" className="kcl">
       <defs>
         <marker id="kcl-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0 0L10 5L0 10z" fill="#D97757" />
+          <path d="M0 0L10 5L0 10z" style={{ fill: "var(--t-primary)" }} />
         </marker>
       </defs>
       <path d="M20 60H156" className="kcl-wire" markerEnd="url(#kcl-arrow)" />
@@ -385,7 +385,7 @@ function KclNode({ i }: { i: number }) {
 const PULL_OPTIONS = [1_000, 4_700, 10_000, 47_000, 100_000];
 const CAP_OPTIONS = [0, 10, 47, 100, 220, 470];
 
-export function MathLab({ project, level, onLevel, onTouched }: { project: Project; level: Level; onLevel: (l: Level) => void; onTouched: () => void }) {
+export function MathLab({ project, level, onLevel, onTouched }: { project: ExampleProject; level: Level; onLevel: (l: Level) => void; onTouched: () => void }) {
   const P = project.params;
   const [vs, setVs] = useState(P.supply);
   const [vf, setVf] = useState(P.ledVf);

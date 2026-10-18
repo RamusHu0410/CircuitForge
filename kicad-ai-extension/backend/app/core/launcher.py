@@ -42,3 +42,35 @@ def open_in_schematic_editor(path: Path, kicad_cli: str | None = None) -> str | 
         logger.warning("could not open %s: %s", path, exc)
         return f"Saved, but could not open KiCad: {exc}"
     return None
+
+
+def reveal_folder(path: Path) -> str | None:
+    """Show a folder in Finder / Explorer / the file manager. Returns an error message, or None."""
+    try:
+        system = platform.system()
+        if system == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        elif system == "Windows":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except OSError as exc:
+        return f"Exported, but could not open the folder: {exc}"
+    return None
+
+
+def open_project(project: Path, kicad_cli: str | None = None) -> str | None:
+    """Open a .kicad_pro in KiCad's project manager (needed for Update PCB from Schematic)."""
+    try:
+        system = platform.system()
+        if system == "Darwin":
+            app = _mac_editor_app(kicad_cli)
+            kicad = app.parent / "KiCad.app" if app else None
+            subprocess.Popen(["open", "-a", str(kicad), str(project)] if kicad and kicad.exists() else ["open", str(project)])
+        elif system == "Windows":
+            os.startfile(str(project))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", str(project)])
+    except OSError as exc:
+        return f"Saved, but could not open KiCad: {exc}"
+    return None

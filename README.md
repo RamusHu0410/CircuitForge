@@ -35,10 +35,9 @@ Try: *"When I press a button, a green LED should light up. Use an Arduino Uno."*
 | --- | --- | --- |
 | **generate** button | `POST /api/generate`, `/api/generate/svg`, `/api/generate/save` | Builds any of 7 circuits (LED, divider, filter, 555 blinker, regulator, button, transistor), shows KiCad's drawing and ERC result, and opens it in KiCad |
 | Prompt box | `POST /api/plan` | Rules pick the knobs; formulas set the values; KiCad's ERC fills in the checks |
-| preview → schematic | `POST /api/design/svg` | KiCad draws the exact schematic, in your KiCad colors |
+| preview → schematic | `POST /api/design/svg` | KiCad draws the exact schematic |
 | open in kicad / Generate in KiCad | `POST /api/design/send` | Saves a **new** project in `~/Documents/KiCad/ai_generated/` (never overwrites) and opens it |
 | `kicad connected` | `GET /api/kicad/status` | Is KiCad installed here? |
-| Colors | `GET /api/kicad/colors` | Your KiCad schematic theme, if you use a custom one |
 
 If the service isn't running, the UI says so and shows the start command. The bundled example keeps working.
 
@@ -85,3 +84,14 @@ out.mkdir(parents=True, exist_ok=True)
 (out / (f['name'] + '.kicad_pro')).write_text(f['project'])
 print('Saved to', out)
 "
+
+## CircuitForge window
+
+`npm run build` in the repo root builds the UI; the backend serves it, and the KiCad toolbar button opens it
+as its own app window. Describe a circuit, then place it in your schematic, save it, open the PCB, edit the
+C++ (for microcontroller circuits), or export pictures + code.
+
+**Classroom** (top left): a class about the circuit you just generated, built by the backend from that
+circuit's own values (`kicad-ai-extension/backend/app/ai/lessons.py`): what it does, each part, its math
+(LaTeX + "what if" sliders), the code, how to draw it in KiCad, how it was checked, and quizzes, at three
+explanation depths. Each step's "explain" in the transcript opens the matching section.

@@ -1,6 +1,8 @@
 """Choose how a prompt becomes a CircuitSpec.
 
 Order of attempts
+0. Button/LED behaviour ("red LED blinks on a double press"): the Arduino Nano template, which also
+   gets C++ firmware with the same pins (see GenerationService._firmware). Always by rules.
 1. Language model (only if configured): prompt -> SystemPlan -> synthesizer.
 2. Microcontroller projects by rules (joysticks, games, LEDs, buzzers, ...): prompt -> SystemPlan -> synthesizer.
 3. Single-circuit templates (555 blinker, regulator, divider, filter, ...).
@@ -9,10 +11,12 @@ Order of attempts
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Literal
 
 from app.ai.circuit_generator import RuleBasedGenerator
+from app.ai.firmware import needs_microcontroller
 from app.ai.llm_planner import LlmError, LlmPlanner
 from app.ai.system_designer import build_system
 from app.ai.system_rules import plan_system, wants_system
@@ -20,6 +24,18 @@ from app.config import Settings
 from app.schemas.circuit import CircuitSpec
 
 logger = logging.getLogger(__name__)
+
+# Parts only the system designer (Arduino Uno) builds. Without them, a behaviour prompt is a firmware project.
+_SYSTEM_PARTS = re.compile(
+    r"\b(joysticks?|games?|players?|uno|buzzers?|speakers?|beepers?|scoreboard|score|scoring|football|soccer|"
+    r"pong|hockey|knobs?|potentiometers?|shift registers?|74hc595)\b",
+    re.I,
+)
+
+
+def wants_firmware(prompt: str) -> bool:
+    """Buttons and LEDs with behaviour (presses, timing, blinking): the Nano template plus its firmware."""
+    return needs_microcontroller(prompt) and not _SYSTEM_PARTS.search(prompt)
 
 
 @dataclass(frozen=True)
@@ -46,6 +62,8 @@ class Generator:
         return cls(llm)
 
     def generate(self, prompt: str) -> Generated:
+        if wants_firmware(prompt):
+            return Generated(self.templates.generate(prompt), "rules")
         if self.llm is not None:
             try:
                 return Generated(build_system(self.llm.plan(prompt)), "llm")

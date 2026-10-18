@@ -7,16 +7,19 @@ import uuid
 from dataclasses import dataclass
 
 from app.ai.circuit_generator import GenerationError
+from app.ai.firmware import BOARD, arduino_sketch, plan_from_prompt
 from app.ai.generator import Generator
+from app.ai.lessons import build_lesson
 from app.config import Settings
 from app.core.circuit_validator import ResolvedCircuit, validate_circuit
 from app.core.erc import find_kicad_cli, run_erc
 from app.core.launcher import open_in_schematic_editor
-from app.core.output_writer import OutputError, WrittenFiles, resolve_output_dir, write_project
+from app.core.output_writer import OutputError, WrittenFiles, resolve_output_dir, write_project, write_sketch
 from app.core.schematic_renderer import render_schematic
 from app.schemas.circuit import (
     CircuitSpec,
     ErcReport,
+    Firmware,
     GenerateRequest,
     GenerateResponse,
     SaveRequest,
@@ -94,6 +97,8 @@ class GenerationService:
             "generate %s: '%s' with %d components; ERC: %s",
             request_id, spec.title, len(spec.components), built.erc.message,
         )
+        firmware = self._firmware(request.prompt, spec, built.files.name)
+        lesson = build_lesson(spec, built.resolved.report, built.erc, built.files, firmware)
         refs = ", ".join(f"{c.ref} {c.value}" for c in spec.components)
         return GenerateResponse(
             request_id=request_id,
@@ -105,6 +110,22 @@ class GenerationService:
             validation=built.resolved.report,
             erc=built.erc,
             files=built.files,
+            firmware=firmware,
+            lesson=lesson,
+        )
+
+    @staticmethod
+    def _firmware(prompt: str, spec: CircuitSpec, name: str) -> Firmware | None:
+        """Circuits with a microcontroller come with their program (same plan, same pins)."""
+        if not any(c.kind == "arduino_nano" for c in spec.components):
+            return None
+        plan = plan_from_prompt(prompt)
+        resistors = [f"{c.value} ohm" for c in spec.components if c.kind == "resistor"]
+        return Firmware(
+            board=BOARD,
+            file_name=f"{name}.ino",
+            code=arduino_sketch(plan, spec.title, resistors),
+            summary=[b.describe(plan.leds) for b in plan.behaviours] + plan.assumptions,
         )
 
     def generate_and_save(self, request: SaveRequest) -> SaveResponse:
@@ -116,6 +137,10 @@ class GenerationService:
             erc=result.erc,
         )
         written, opened, open_error = self.save(built, request.open_in_kicad)
+        try:
+            sketch = write_sketch(written.folder, result.firmware) if result.firmware else None
+        except OutputError as exc:
+            raise SaveError(str(exc)) from exc
 
         logger.info("saved %s -> %s (opened=%s)", result.circuit.title, written.schematic, opened)
         return SaveResponse(
@@ -130,8 +155,8 @@ class GenerationService:
             project_path=str(written.project),
             opened_in_kicad=opened,
             open_error=open_error,
+            firmware_path=str(sketch) if sketch else None,
         )
-
 
 
 __all__ = ["Built", "GenerationError", "GenerationService", "SaveError"]

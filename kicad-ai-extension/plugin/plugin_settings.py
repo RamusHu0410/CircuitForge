@@ -26,10 +26,15 @@ BACKEND_URL_ENV = "KICAD_AI_BACKEND_URL"
 logger = logging.getLogger(__name__)
 
 
+INTERFACES = ("circuitforge", "dialog")
+
+
 @dataclass(frozen=True)
 class PluginSettings:
     backend_url: str
     request_timeout_s: float = 90.0  # generation includes running KiCad's ERC
+    # "circuitforge": open the CircuitForge window (served by the backend); "dialog": the built-in Tk dialog.
+    interface: str = "circuitforge"
 
 
 def _normalize_url(url: str) -> str | None:
@@ -43,6 +48,7 @@ def _normalize_url(url: str) -> str | None:
 def load_settings(config_file: Path = CONFIG_FILE, environ: dict[str, str] | None = None) -> PluginSettings:
     environ = os.environ if environ is None else environ
     candidates: list[tuple[str, str]] = []
+    interface = "circuitforge"
 
     if environ.get(BACKEND_URL_ENV):
         candidates.append((BACKEND_URL_ENV, environ[BACKEND_URL_ENV]))
@@ -52,13 +58,15 @@ def load_settings(config_file: Path = CONFIG_FILE, environ: dict[str, str] | Non
             data = json.loads(config_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and isinstance(data.get("backend_url"), str):
                 candidates.append((str(config_file), data["backend_url"]))
+            if isinstance(data, dict) and data.get("interface") in INTERFACES:
+                interface = data["interface"]
         except (OSError, ValueError) as exc:
             logger.warning("ignoring unreadable %s: %s", config_file, exc)
 
     for source, value in candidates:
         url = _normalize_url(value)
         if url:
-            return PluginSettings(backend_url=url)
+            return PluginSettings(backend_url=url, interface=interface)
         logger.warning("ignoring invalid backend URL from %s: %r", source, value)
 
-    return PluginSettings(backend_url=DEFAULT_BACKEND_URL)
+    return PluginSettings(backend_url=DEFAULT_BACKEND_URL, interface=interface)

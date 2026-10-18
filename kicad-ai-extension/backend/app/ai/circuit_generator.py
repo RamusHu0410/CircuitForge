@@ -37,6 +37,8 @@ SUPPORTED_CIRCUITS = [
     "Arduino Uno projects built from joysticks, buttons, knobs, LED groups and a buzzer "
     "(e.g. 'two-player football game with two joysticks and LEDs for game state and scoring'; "
     "LEDs move to 74HC595 shift registers when the Uno runs out of pins)",
+    "Arduino Nano with buttons and LEDs, plus C++ firmware (e.g. 'red LED blinks when the button is pressed once, "
+    "green LED blinks if it's pressed twice within 0.5 s')",
 ]
 
 
@@ -526,6 +528,57 @@ def transistor_switch(prompt: str) -> CircuitSpec:
     return b.build()
 
 
+def microcontroller(prompt: str) -> CircuitSpec:
+    """Arduino Nano + buttons + LEDs. The behaviour lives in firmware (app.ai.firmware), same pins."""
+    from app.ai.firmware import BUTTON_PINS, LED_PINS, plan_from_prompt
+
+    plan = plan_from_prompt(prompt)
+    n_btn, n_led = plan.buttons, len(plan.leds)
+    b = _Builder(
+        "Arduino button and LEDs",
+        f"Arduino Nano reading {n_btn} button{'s' if n_btn > 1 else ''} and driving {n_led} LED{'s' if n_led > 1 else ''}; "
+        "the behaviour is in the C++ firmware.",
+    )
+    a = b.add("A", "arduino_nano", "Arduino_Nano_v3.x", "runs the firmware; powered over USB")
+    gnd: list[tuple[str, str]] = [(a, "gnd"), (a, "gnd2")]
+
+    # Layout (grid cells): Nano with pin 5 (D2) on (22, 4), so D9..D12 are rows 11..14 on the left edge
+    # (col 22) and A0/A1 are rows 8/9 on the right edge (col 32). LEDs hang off the left, buttons off
+    # the right, each with its own path down to the GND rail, so no wires cross.
+    b.place(a, "5", 22, 4)
+    gnd_row = n_led + 22
+    for i in range(n_btn):
+        sw = b.add("SW", "push_button", "SW_Push", f"button {i + 1} on {BUTTON_PINS[i]} (internal pull-up)")
+        b.connect(f"BTN{i + 1}", (a, BUTTON_PINS[i].lower()), (sw, "1"))
+        gnd.append((sw, "2"))
+        # The top input runs furthest right; each switch stands on the GND rail, below all the input wires.
+        b.place(sw, "1", 35 + 4 * (n_btn - 1 - i), gnd_row - 4, "down")
+
+    vs = 5.0  # Nano output pins swing to ~5 V
+    for j, color in enumerate(plan.leds):
+        pin = LED_PINS[j]
+        col = 20 - 6 * (n_led - j)  # the top output (D9) runs furthest left, so no wires cross
+        row = 11 + n_led + 1  # every resistor starts below all the output wires (rows 11..)
+        ohms = _led_resistor(vs, LED_VF[color], 0.010)
+        r = b.add("R", "resistor", format_ohms(ohms), f"{color} LED current limiting")
+        d = b.add("D", "led", f"LED_{color.capitalize()}", f"{color} LED on D{pin}")
+        b.connect(f"LED{j + 1}", (a, f"d{pin}"), (r, "1"))
+        b.connect(f"LED{j + 1}_A", (r, "2"), (d, "A"))
+        gnd.append((d, "K"))
+        b.place(r, "1", col, row, "down")
+        b.place(d, LED_A, col, row + 5, "down")  # same spacing as the LED template, so R -> LED is one straight wire
+        actual = (vs - LED_VF[color]) / ohms * 1000
+        b.notes.append(f"{r} = {format_ohms(ohms)}: ({format_volts(vs)} - {LED_VF[color]} V) / {actual:.1f} mA for the {color} LED {d} on D{pin}.")
+    b.connect("GND", *gnd)
+    b.bus("GND", gnd_row)
+    b.notes += [
+        "Buttons use the Nano's internal pull-up resistors, so no external resistor is needed (pressed = LOW).",
+        "Powered over USB; the 5V, 3V3 and VIN pins are left unconnected.",
+        *plan.assumptions,
+    ]
+    return b.build()
+
+
 @dataclass(frozen=True)
 class _Template:
     name: str
@@ -533,7 +586,15 @@ class _Template:
     build: Callable[[str], CircuitSpec]
 
 
+def _needs_mcu(prompt: str) -> bool:
+    from app.ai.firmware import needs_microcontroller
+
+    return needs_microcontroller(prompt)
+
+
 TEMPLATES = [
+    # First: behaviour (counting presses, timing, blinking on demand) needs a program, not passives.
+    _Template("microcontroller", _needs_mcu, microcontroller),
     _Template("555 blinker", lambda p: _words(p, "555", "astable", "blink", "flash", "oscillat"), blinker_555),
     _Template("regulator", lambda p: _words(p, "regulat", "7805", "ams1117", "ldo", "lm78"), linear_regulator),
     _Template("voltage divider", lambda p: _words(p, "divider"), voltage_divider),

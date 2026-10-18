@@ -25,9 +25,7 @@ def opened(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
 @pytest.fixture
 def web(tmp_path: Path, opened: list[Path]) -> Iterator[TestClient]:
     app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(
-        output_dir=str(tmp_path / "out"), kicad_settings_dir=str(tmp_path / "kicad-settings")
-    )
+    app.dependency_overrides[get_settings] = lambda: Settings(output_dir=str(tmp_path / "out"))
     with TestClient(app) as client:
         yield client
 
@@ -61,7 +59,7 @@ def test_plan_returns_the_ui_project_shape(web: TestClient) -> None:
 
 @needs_kicad
 def test_plan_matches_the_example_wording_and_numbers(web: TestClient) -> None:
-    """The plan reads exactly like the example the UI ships with (src/data/example.ts)."""
+    """The plan reads exactly like the example the UI ships with (frontend/data/example.ts)."""
     project = plan(web).json()
     steps = {s["id"]: s for s in project["steps"]}
 
@@ -194,39 +192,6 @@ def test_kicad_status_when_missing(tmp_path: Path) -> None:
     assert body["status"] == "disconnected" and "KICAD_CLI_PATH" in body["detail"]
 
 
-def test_kicad_colors_empty_for_builtin_theme(web: TestClient, tmp_path: Path) -> None:
-    settings = tmp_path / "kicad-settings"
-    settings.mkdir()
-    (settings / "eeschema.json").write_text('{"appearance": {"color_theme": "_builtin_default"}}')
-    assert web.get("/api/kicad/colors").json() == {}
-
-
-def test_kicad_colors_from_user_theme(web: TestClient, tmp_path: Path) -> None:
-    settings = tmp_path / "kicad-settings"
-    (settings / "colors").mkdir(parents=True)
-    (settings / "eeschema.json").write_text('{"appearance": {"color_theme": "night"}}')
-    (settings / "colors" / "night.json").write_text(
-        '{"schematic": {"background": "rgb(22, 22, 30)", "wire": "rgb(42, 195, 222)", '
-        '"component_outline": "rgba(125, 207, 255, 0.5)", "component_body": "url(javascript:alert(1))", '
-        '"reference": "red; background: url(x)", "label_local": "rgb(192, 202, 245)", "junction": "rgb(1,2,3)"}}'
-    )
-    colors = web.get("/api/kicad/colors").json()
-    assert colors == {
-        "--kc-bg": "rgb(22, 22, 30)",
-        "--kc-wire": "rgb(42, 195, 222)",
-        "--kc-sym": "rgba(125, 207, 255, 0.5)",
-        "--kc-label": "rgb(192, 202, 245)",
-    }  # injected CSS and unmapped keys are dropped
-
-
-def test_kicad_colors_theme_name_cannot_escape_the_folder(web: TestClient, tmp_path: Path) -> None:
-    settings = tmp_path / "kicad-settings"
-    settings.mkdir()
-    (tmp_path / "secret.json").write_text('{"schematic": {"wire": "rgb(1, 2, 3)"}}')
-    (settings / "eeschema.json").write_text('{"appearance": {"color_theme": "../../secret"}}')
-    assert web.get("/api/kicad/colors").json() == {}
-
-
 # --- Browser safety ----------------------------------------------------------------------------
 
 
@@ -240,6 +205,12 @@ def test_the_web_ui_origin_is_allowed_and_others_are_not() -> None:
         evil = client.post("/api/generate/save", json={"prompt": "red LED on 5V"}, headers={"Origin": "https://evil.example"})
         assert evil.status_code == 403
         assert "access-control-allow-origin" not in evil.headers
+
+
+def test_the_desktop_window_origin_is_allowed() -> None:
+    # The window loads the UI from this server; WebKit still sends Origin on its POSTs.
+    with TestClient(create_app()) as client:
+        assert client.get("/api/desktop/info", headers={"Origin": "http://127.0.0.1:8765"}).status_code == 200
 
 
 def test_the_plugin_without_an_origin_header_is_unaffected() -> None:

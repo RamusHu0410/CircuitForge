@@ -106,6 +106,12 @@ class BackendClient:
         except (KeyError, TypeError) as exc:
             raise BackendResponseError(f"Backend response is missing or has a bad field: {exc}.") from None
 
+    def open_window(self, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Ask the backend to open (or bring forward) the CircuitForge window."""
+        self.health()
+        payload: dict[str, Any] = {"context": context} if context else {}
+        return self._request("POST", "/api/desktop/open", payload, timeout_s=min(self.timeout_s, 10.0))
+
     # --- Internals ----------------------------------------------------------
 
     def _request(

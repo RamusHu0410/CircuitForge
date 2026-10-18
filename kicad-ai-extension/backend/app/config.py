@@ -43,12 +43,12 @@ class Settings(BaseSettings):
     # Where the save endpoints write projects. Empty = ~/Documents/KiCad/ai_generated.
     output_dir: str | None = None
 
-    # KiCad's per-version settings folder (to read the user's color theme). Empty = auto-detect.
-    kicad_settings_dir: str | None = None
-
-    # Browser access. The web UI (Vite dev server) may call the API; any other website may not.
+    # Browser access. The CircuitForge window (served by this backend on :8765) and the Vite dev server
+    # (:5173) may call the API; any other website may not. Browsers send Origin even on same-origin POSTs.
     # Comma-separated in the environment. The KiCad plugin sends no Origin header and is unaffected.
-    allowed_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    allowed_origins: Annotated[list[str], NoDecode] = [
+        "http://127.0.0.1:8765", "http://localhost:8765", "http://localhost:5173", "http://127.0.0.1:5173",
+    ]
     # Hostnames the API answers to (blocks DNS-rebinding). "testserver" is the test client's name.
     allowed_hosts: Annotated[list[str], NoDecode] = ["127.0.0.1", "localhost", "[::1]", "testserver"]
 
@@ -58,6 +58,11 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+    # Where the CircuitForge window's "export" writes. Empty = ~/Downloads/CircuitForge.
+    export_dir: str | None = None
+
+    # The built CircuitForge UI (`npm run build` in the repo root) served at "/". Empty = <repo>/dist.
+    ui_dist_dir: str | None = None
 
 
 @lru_cache

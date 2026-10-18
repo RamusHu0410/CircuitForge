@@ -119,6 +119,14 @@ COMPONENT_KINDS: dict[str, ComponentKind] = {
             "Package_TO_SOT_SMD:SOT-223-3_TabPin2", "AMS1117-3.3",
             {"gnd": "1", "out": "2", "vout": "2", "vo": "2", "in": "3", "vin": "3", "vi": "3"},
         ),
+        ComponentKind(
+            "arduino_nano", "MCU_Module:Arduino_Nano_v3.x", "A", "Arduino Nano v3 (ATmega328P, 5 V, programmed in Arduino C++)",
+            "Module:Arduino_Nano", "Arduino_Nano_v3.x",
+            {**{f"d{n}": str(n + 3) for n in range(2, 14)}, "d1": "1", "tx": "1", "d0": "2", "rx": "2",
+             **{f"a{n}": str(n + 19) for n in range(8)}, "gnd": "4", "gnd2": "29", "5v": "27", "+5v": "27",
+             "3v3": "17", "vin": "30", "aref": "18", "reset": "3"},
+            optional_pins=frozenset({"17", "27", "30"}),  # 3V3 / +5V / VIN: powered over USB
+        ),
     ]
 }
 

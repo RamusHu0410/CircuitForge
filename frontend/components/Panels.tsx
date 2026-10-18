@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowUp, ChevronDown, Cpu, Settings as SettingsIcon, X } from "lucide-react";
-import type { Activity, Check, KiCadStatus, Level, Part } from "../types";
+import { ArrowUp, ChevronDown, Settings as SettingsIcon, X } from "lucide-react";
+import type { Activity, Check, Level, Part } from "../types";
+import type { KiCadInfo } from "./Plan";
 import { levelLabel } from "../data/explain";
 
 /* ---------- checks (right, like the sketch: ✓ / ✗ + a line) ---------- */
@@ -10,6 +11,7 @@ const MARK = { pass: "✓", fail: "✗", warn: "!" };
 
 export function ChecksPanel({ checks, onSelect }: { checks: Check[]; onSelect: (c: Check) => void }) {
   const passed = checks.filter((c) => c.status === "pass").length;
+  if (!checks.length) return <div className="checks-empty dim">Design checks show up here once a circuit is generated.</div>;
   return (
     <>
       <div className="checks-sum">
@@ -40,6 +42,7 @@ export function ChecksPanel({ checks, onSelect }: { checks: Check[]; onSelect: (
 /* ---------- right, under the checks: parts in the design ---------- */
 
 export function PartsMini({ parts, onOpen }: { parts: Part[]; onOpen: () => void }) {
+  if (!parts.length) return null;
   const sorted = [...parts].sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
   return (
     <div className="parts-mini">
@@ -94,7 +97,7 @@ export function UtilityPanel({ activity, onImport, onExport, onSettings }: { act
 
 /* ---------- top-right: preview ---------- */
 
-export type PreviewKind = "schematic" | "parts";
+export type PreviewKind = "schematic" | "parts" | "code" | "pcb";
 
 export function PreviewMenu({ onOpen }: { onOpen: (k: PreviewKind) => void }) {
   const [open, setOpen] = useState(false);
@@ -122,7 +125,8 @@ export function PreviewMenu({ onOpen }: { onOpen: (k: PreviewKind) => void }) {
           <motion.div className="menu" initial={{ opacity: 0, y: -4, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.97 }} transition={{ duration: 0.14 }}>
             <button onClick={() => pick("schematic")}>schematic</button>
             <button onClick={() => pick("parts")}>parts</button>
-            <button disabled>pcb (soon)</button>
+            <button onClick={() => pick("code")}>code (C++)</button>
+            <button onClick={() => pick("pcb")}>pcb · open in KiCad</button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -133,19 +137,24 @@ export function PreviewMenu({ onOpen }: { onOpen: (k: PreviewKind) => void }) {
 /* ---------- bottom: chat ---------- */
 
 interface ComposerProps {
+  /** Text put into the box from outside (e.g. an example prompt); `seq` changes on every pick. */
+  prefill?: { text: string; seq: number };
   onSend: (text: string) => void;
-  /** Build the described circuit with POST /api/generate and offer to open it in KiCad. */
-  onGenerate: (text: string) => void;
   busy: boolean;
   level: Level;
   onCycleLevel: () => void;
-  kicad: KiCadStatus;
+  kicad: KiCadInfo;
 }
 
-export function Composer({ onSend, onGenerate, busy, level, onCycleLevel, kicad }: ComposerProps) {
+export function Composer({ prefill, onSend, busy, level, onCycleLevel, kicad }: ComposerProps) {
   const [text, setText] = useState("");
-  const [hint, setHint] = useState(false);
   const ta = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!prefill?.seq) return;
+    setText(prefill.text);
+    ta.current?.focus();
+  }, [prefill?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const el = ta.current;
@@ -153,18 +162,6 @@ export function Composer({ onSend, onGenerate, busy, level, onCycleLevel, kicad 
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [text]);
-
-  const generate = () => {
-    const t = text.trim();
-    if (t) {
-      setHint(false);
-      onGenerate(t);
-    } else {
-      // Nothing to build yet: take the user to the box and say what to type.
-      setHint(true);
-      ta.current?.focus();
-    }
-  };
 
   const send = () => {
     const t = text.trim();
@@ -175,11 +172,6 @@ export function Composer({ onSend, onGenerate, busy, level, onCycleLevel, kicad 
 
   return (
     <div className="composer">
-      {hint && (
-        <div className="composer-hint" role="status">
-          Type the circuit you want first, for example "555 timer blinking an LED at 2 Hz on 9V", then click <b>generate circuit</b>.
-        </div>
-      )}
       <div className="composer-row">
         <div className="composer-box">
           <span className="caret">&gt;</span>
@@ -187,11 +179,8 @@ export function Composer({ onSend, onGenerate, busy, level, onCycleLevel, kicad 
             ref={ta}
             rows={1}
             value={text}
-            placeholder='Describe a circuit, e.g. "555 timer blinking an LED at 2 Hz on 9V", then click generate circuit'
-            onChange={(e) => {
-              setText(e.target.value);
-              setHint(false);
-            }}
+            placeholder="Describe a circuit…"
+            onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -203,14 +192,6 @@ export function Composer({ onSend, onGenerate, busy, level, onCycleLevel, kicad 
             }}
           />
         </div>
-        <motion.button
-          className="btn gen-open"
-          whileTap={{ scale: 0.96 }}
-          onClick={generate}
-          title="Build the circuit you described (LED, divider, filter, 555 blinker, regulator, button, transistor) and open it in KiCad"
-        >
-          <Cpu size={15} /> generate circuit
-        </motion.button>
         <motion.button className={`send-btn${text.trim() ? " ready" : ""}`} whileTap={{ scale: 0.9 }} onClick={send} disabled={!text.trim() || busy} aria-label="Send" title="send">
           <ArrowUp size={18} />
         </motion.button>
@@ -225,8 +206,8 @@ export function Composer({ onSend, onGenerate, busy, level, onCycleLevel, kicad 
           </AnimatePresence>{" "}
           <span className="dim">(shift+tab to cycle)</span>
         </button>
-        <span className={`kicad-status ${kicad}`}>
-          {kicad === "connected" ? "●" : "◯"} kicad {kicad === "connected" ? "connected" : kicad === "connecting" ? "connecting…" : "not connected"}
+        <span className={`kicad-status ${kicad.status}`}>
+          {kicad.status === "connected" ? "●" : "◯"} {kicad.label}
         </span>
       </div>
     </div>

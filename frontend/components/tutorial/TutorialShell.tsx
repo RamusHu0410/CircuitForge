@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { ArrowLeft, ArrowRight, Check, Hammer, ShieldCheck, Sigma, X, Zap } from "lucide-react";
-import type { Level, Project } from "../../types";
+import type { Level, ExampleProject } from "../../types";
 import { BUILD_STEPS, DIAGNOSTICS } from "../../data/tutorial";
 import { CHAPTERS } from "../Tutorial";
 import { HowItWorks } from "./HowItWorks";
@@ -36,7 +36,7 @@ export function chapterProgress(p: TutorialProgress, checklist: Record<string, b
 
 interface Props {
   chapter: number;
-  project: Project;
+  project: ExampleProject;
   checklist: Record<string, boolean>;
   progress: TutorialProgress;
   level: Level;

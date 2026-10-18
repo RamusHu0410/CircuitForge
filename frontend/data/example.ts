@@ -1,4 +1,4 @@
-import type { Check, DesignParams, Net, Project, Step } from "../types";
+import type { Check, DesignParams, ExampleProject, Net, Step } from "../types";
 import { dischargeTime, fmtOhms, fmtSI, ledDesign, LOGIC, tau } from "../math";
 
 /**
@@ -116,7 +116,7 @@ const checks: Check[] = [
   { id: "c-kvl", label: "KVL = 0 V", status: "pass", stepId: "verify" },
 ];
 
-export const EXAMPLE_PROJECT: Project = {
+export const EXAMPLE_PROJECT: ExampleProject = {
   name: "Push-button LED",
   request: "When I press a button, a red LED should light up. Use an Arduino Uno.",
   params,

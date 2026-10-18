@@ -36,6 +36,13 @@ class KiCadContext:
             context["project_name"] = self.project_name[:200]
         return context
 
+    def as_window_context(self) -> dict[str, str]:
+        """Session info for the CircuitForge window (includes the project folder for saving)."""
+        context = self.as_request_context()
+        if self.project_dir:
+            context["project_dir"] = self.project_dir[:1000]
+        return context
+
     def describe(self) -> str:
         if not self.connected:
             return f"Not connected to KiCad ({self.error}). You can still generate schematics."

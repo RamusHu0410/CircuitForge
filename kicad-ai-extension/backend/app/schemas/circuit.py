@@ -11,6 +11,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.schemas.lesson import Lesson
+
 MAX_PROMPT_LENGTH = 4000
 
 Prompt = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_PROMPT_LENGTH)]
@@ -155,6 +157,17 @@ class SchematicFiles(BaseModel):
     project: str = Field(description="Contents of <name>.kicad_pro")
 
 
+class Firmware(BaseModel):
+    """Program for a microcontroller in the circuit. Pins match the schematic."""
+
+    language: Literal["cpp"] = "cpp"
+    framework: Literal["arduino"] = "arduino"
+    board: str
+    file_name: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,48}\.ino$")]
+    code: Annotated[str, StringConstraints(max_length=200_000)]
+    summary: list[str] = []
+
+
 class SaveRequest(GenerateRequest):
     """Generate, then save the result as a new KiCad project on this computer."""
 
@@ -180,6 +193,7 @@ class SaveResponse(BaseModel):
     project_path: str
     opened_in_kicad: bool
     open_error: str | None = None
+    firmware_path: str | None = Field(default=None, description="The Arduino sketch, when the circuit has a microcontroller")
 
 
 class GenerateResponse(BaseModel):
@@ -192,3 +206,5 @@ class GenerateResponse(BaseModel):
     validation: ValidationReport
     erc: ErcReport
     files: SchematicFiles
+    firmware: Firmware | None = None
+    lesson: Lesson | None = Field(default=None, description="Classroom lesson about this exact circuit")

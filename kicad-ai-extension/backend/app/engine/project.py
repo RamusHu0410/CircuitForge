@@ -1,6 +1,6 @@
 """Build the frontend's `Project` (steps, checks, nets) for a design.
 
-The wording and numbers mirror `src/data/example.ts` so the UI reads the same for the example and
+The wording and numbers mirror `frontend/data/example.ts` so the UI reads the same for the example and
 for a generated plan. Unlike the example, the verification results are real: the checks come from
 the formulas in `jsmath`, and the netlist/ERC lines come from the schematic KiCad actually checked.
 """

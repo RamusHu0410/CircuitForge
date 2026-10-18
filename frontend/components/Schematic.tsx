@@ -13,7 +13,7 @@ function Gnd({ x, y }: { x: number; y: number }) {
 
 /**
  * Schematic of the example project, drawn with KiCad's color roles
- * (wires, symbol outline/fill, reference/value text) so it can follow the user's KiCad theme.
+ * (wires, symbol outline/fill, reference/value text), in KiCad's default palette (--kc-*).
  */
 export function Schematic({ pressed = false, highlight = [], className = "" }: Props) {
   const cls = (g: SchematicGroup) => `grp${highlight.length && !highlight.includes(g) ? " dim" : ""}${highlight.includes(g) ? " hl" : ""}`;

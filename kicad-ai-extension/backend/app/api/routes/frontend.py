@@ -1,4 +1,4 @@
-"""Endpoints used by the CircuitForge web UI (`src/api/client.ts`)."""
+"""Endpoints used by the CircuitForge web UI (`frontend/api/client.ts`)."""
 
 from __future__ import annotations
 
@@ -116,13 +116,6 @@ def design_send(request: DesignRequest, service: ServiceDep) -> SendResponse:
 # --- KiCad -------------------------------------------------------------------------------------
 
 
-def _settings_dir(settings: Settings) -> Path | None:
-    if settings.kicad_settings_dir:
-        path = Path(settings.kicad_settings_dir).expanduser()
-        return path if path.is_dir() else None
-    return kicad_env.latest_settings_dir()
-
-
 @router.get("/kicad/status", response_model=KiCadStatusOut, response_model_by_alias=True, summary="Is KiCad available?")
 def kicad_status(settings: SettingsDep, service: ServiceDep) -> KiCadStatusOut:
     cli = service.kicad_cli()
@@ -143,8 +136,3 @@ def kicad_status(settings: SettingsDep, service: ServiceDep) -> KiCadStatusOut:
         output_dir=output_dir,
         plugin_running=socket_present,
     )
-
-
-@router.get("/kicad/colors", response_model=dict[str, str], summary="The user's KiCad schematic colors as CSS variables")
-def kicad_colors(settings: SettingsDep) -> dict[str, str]:
-    return kicad_env.theme_css_vars(_settings_dir(settings))

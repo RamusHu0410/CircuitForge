@@ -18,6 +18,10 @@ export interface Step {
   parts: Part[];
   tags?: string[];
   lesson?: LessonId;
+  /** Expands into the C++ editor instead of a lesson. */
+  editor?: "firmware";
+  /** The Classroom section that explains this step. */
+  sectionId?: string;
 }
 
 export interface Check {
@@ -46,14 +50,34 @@ export interface Net {
 export interface Project {
   name: string;
   request: string;
-  params: DesignParams;
+  /** Only the built-in example has these (its lessons and tutorial use them). */
+  params?: DesignParams;
   steps: Step[];
   checks: Check[];
   /** Nets of the built schematic. The bundled example omits it and the UI uses EXAMPLE_NETS. */
   nets?: Net[];
   /** What the engine just did, in a sentence ("Updated: LED current 20 mA (brighter)"). */
   summary?: string;
+  /** Present for circuits built by the engine: the KiCad files to preview, save or paste. */
+  files?: { name: string; schematic: string; project: string };
+  /** Program for the microcontroller, when the circuit has one. */
+  firmware?: Firmware;
+  /** Classroom lesson about this exact circuit (from the backend). */
+  lesson?: import("./api/backend").Lesson;
+  generator?: "rules" | "llm";
 }
+
+export interface Firmware {
+  language: "cpp";
+  framework: "arduino";
+  board: string;
+  file_name: string;
+  code: string;
+  summary: string[];
+}
+
+/** The built-in example (always has design parameters); the tutorial is written around it. */
+export type ExampleProject = Project & { params: DesignParams };
 
 export interface ChatMessage {
   id: number;
@@ -75,6 +99,9 @@ export type Level = "eli5" | "beginner" | "expert";
 export interface Settings {
   kicadVersion: "9" | "10";
   level: Level;
+  brand: string; // accent colour, hex
+  background: string; // window background, hex
+  welcomeDismissed?: boolean;
 }
 
 export type KiCadStatus = "disconnected" | "connecting" | "connected";

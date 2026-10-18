@@ -88,6 +88,21 @@ def check() -> int:
 
 
 def run() -> int:
+    settings, kicad, client, action = _build()
+    if settings.interface == "circuitforge":
+        from backend_client import BackendError
+
+        try:
+            result = client.open_window(kicad.as_window_context() or None)
+            logger.info("CircuitForge window %s; %s", "brought forward" if result.get("already_open") else "opened", kicad.describe())
+            return 0
+        except BackendError as exc:
+            # Fall back to the built-in dialog, which explains what's wrong (e.g. backend not running).
+            logger.warning("could not open the CircuitForge window (%s); showing the dialog", exc)
+    return _run_dialog(kicad, action)
+
+
+def _run_dialog(kicad, action) -> int:
     try:
         from ui.prompt_dialog import run_dialog
     except ImportError as exc:
@@ -100,7 +115,6 @@ def run() -> int:
 
     from kicad_client.launcher import open_schematic, reveal
 
-    _, kicad, _, action = _build()
     logger.info("launching dialog; %s; output to %s", kicad.describe(), action.output_dir)
     status = f"{kicad.describe()} Files are saved to {action.output_dir}."
     run_dialog(

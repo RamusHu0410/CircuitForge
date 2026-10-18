@@ -1,4 +1,4 @@
-"""Wire format for the CircuitForge web UI (`src/types.ts`).
+"""Wire format for the CircuitForge web UI (`frontend/types.ts`).
 
 Field names are camelCase on the wire and snake_case in Python. These models mirror the
 TypeScript interfaces exactly: `Project`, `Step`, `Part`, `Check`, `Net`, and `DesignParams`.

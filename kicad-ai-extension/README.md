@@ -88,6 +88,21 @@ it on a network interface.
 To use a different backend URL, copy `config.example.json` to `config.json`
 in the installed plugin folder and edit it, or set `KICAD_AI_BACKEND_URL`.
 
+## CircuitForge window
+
+The toolbar button now opens the **CircuitForge window**, a native app window (pywebview, using the
+system's WebKit/WebView2) showing the UI from the repo root, served by this backend. Build the UI once
+with `npm install && npm run build` in the repo root; the backend serves `dist/` at `/`.
+
+- The plugin sends the KiCad version and open project to `POST /api/desktop/open`; clicking again brings the window forward.
+- **Place in my schematic:** `POST /api/desktop/place` copies the circuit to the clipboard in KiCad's own clipboard format.
+  In the Schematic Editor press Cmd/Ctrl+V and click to drop it. The backend never writes to your files.
+- **Save as a new project:** `POST /api/desktop/save` writes `<your project>/ai_generated/<name>/` and opens it.
+- **Preview:** `POST /api/desktop/preview` returns KiCad's own SVG rendering (`kicad-cli sch export svg`).
+- To keep the old Tkinter dialog, set `"interface": "dialog"` in the plugin's `config.json`.
+  The dialog is also the fallback when the backend isn't running.
+- Run the window without KiCad: `cd backend && python -m app.desktop`.
+
 ## 3. Use it
 
 1. Click **AI Schematic Generator** in the PCB Editor toolbar.

@@ -1,4 +1,4 @@
-"""The Python port of src/math.ts must print exactly what the frontend prints.
+"""The Python port of frontend/math.ts must print exactly what the frontend prints.
 
 The plan returned to the UI contains pre-formatted result lines, so any drift would make the
 backend's text contradict the frontend's own lessons. These tests run the real TypeScript
@@ -15,10 +15,10 @@ import pytest
 from app.engine import jsmath
 
 ROOT = Path(__file__).resolve().parents[3]
-MATH_TS = ROOT / "src" / "math.ts"
+MATH_TS = ROOT / "frontend" / "math.ts"
 
 needs_node = pytest.mark.skipif(
-    shutil.which("node") is None or not MATH_TS.is_file(), reason="node or src/math.ts not available"
+    shutil.which("node") is None or not MATH_TS.is_file(), reason="node or frontend/math.ts not available"
 )
 
 VALUES = [0, 1, 15, 0.015, 0.0136363636, 0.04090909090909091, 220, 4700, 10000, 2.2e6, 0.001, 1e-5, 1.234e-5,

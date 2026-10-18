@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { MousePointerClick, Pause, Play, RotateCcw } from "lucide-react";
-import type { Project } from "../../types";
+import type { ExampleProject } from "../../types";
 import { LOGIC, fmtSI, ledDesign, tau } from "../../math";
 import { PART_INFO, TOUR, type PartId, type SimPhase } from "../../data/tutorial";
 import { Circuit, anchorPct, type FlowId } from "./Circuit";
@@ -93,7 +93,7 @@ function Scope({ getV, vMax }: { getV: () => number; vMax: number }) {
 
 /* ---------- page ---------- */
 
-export function HowItWorks({ project, onComplete }: { project: Project; onComplete: () => void }) {
+export function HowItWorks({ project, onComplete }: { project: ExampleProject; onComplete: () => void }) {
   const P = project.params;
   const iLed = ledDesign(P.supply, P.ledVf, P.ledTargetMa, P.ledResistor).current;
   const tc = tau(P.pullDown, P.debounceCapNf);

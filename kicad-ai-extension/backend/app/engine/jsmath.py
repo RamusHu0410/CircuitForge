@@ -1,4 +1,4 @@
-"""Python port of the frontend's `src/math.ts`.
+"""Python port of the frontend's `frontend/math.ts`.
 
 The plan the backend returns contains pre-formatted result lines ("R = (5 − 2) / 15 mA = ..."),
 so the numbers and text must match what the frontend's own lessons compute. A test runs

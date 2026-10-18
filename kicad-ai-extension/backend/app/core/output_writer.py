@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.schemas.circuit import SchematicFiles
+from app.schemas.circuit import Firmware, SchematicFiles
 
 SAFE_NAME = re.compile(r"^[a-z0-9_]{1,48}$")
 
@@ -63,3 +63,42 @@ def write_project(base_dir: Path, files: SchematicFiles) -> WrittenFiles:
     except OSError as exc:
         raise OutputError(f"Could not save in {base_dir}: {exc.strerror or exc}") from None
     raise OutputError(f"Too many saved designs named '{name}' in {base_dir}.")
+
+
+def write_sketch(folder: Path, firmware: Firmware) -> Path:
+    """Write an Arduino sketch as <folder>/<name>/<name>.ino (the IDE wants the folder to match)."""
+    stem = Path(firmware.file_name).stem
+    if not SAFE_NAME.match(stem):
+        raise OutputError(f"Unsafe sketch name: {firmware.file_name!r}")
+    try:
+        sketch_dir = folder / stem
+        sketch_dir.mkdir(exist_ok=True)
+        path = sketch_dir / f"{stem}.ino"
+        with open(path, "x", encoding="utf-8") as handle:
+            handle.write(firmware.code)
+        return path
+    except OSError as exc:
+        raise OutputError(f"Could not save the sketch in {folder}: {exc.strerror or exc}") from None
+
+
+EMPTY_BOARD = """(kicad_pcb
+\t(version 20241229)
+\t(generator "pcbnew")
+\t(generator_version "10.0")
+\t(general
+\t\t(thickness 1.6)
+\t)
+\t(paper "A4")
+)
+"""
+
+
+def write_empty_board(written: WrittenFiles) -> Path:
+    """Add an empty <name>.kicad_pcb next to the project, ready for "Update PCB from Schematic" (F8)."""
+    board = written.project.with_suffix(".kicad_pcb")
+    try:
+        with open(board, "x", encoding="utf-8") as handle:
+            handle.write(EMPTY_BOARD)
+    except OSError as exc:
+        raise OutputError(f"Could not create the board file: {exc.strerror or exc}") from None
+    return board
