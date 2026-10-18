@@ -12,6 +12,8 @@ It builds 9 kinds of circuit: LED, voltage divider, RC filter, 555 blinker, regu
 switch, Arduino Uno projects (joysticks, buttons, knobs, LEDs, buzzer) and an Arduino Nano with buttons and LEDs,
 which also gets C++ firmware.
 
+![The CircuitForge window](docs/circuitforge-window.png)
+
 ## Run it
 
 KiCad 10 or newer must be installed (the service uses its command-line tools). Start the service first.
