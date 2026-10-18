@@ -27,18 +27,24 @@ uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 ```bash
-# 2. the web UI, from the repo root (the source is in frontend/)
+# 2. build the UI once, from the repo root (the service serves it)
 npm install
-npm run dev     # http://127.0.0.1:5173 (the port is fixed on purpose, see Security)
-```
-
-Or build it once and let the service serve it, which is how the app window works (see CircuitForge window below):
-
-```bash
-npm run build   # makes dist/, then open http://127.0.0.1:8765
+npm run build
 ```
 
 `dist/` is not in git, so build it again after you pull.
+
+Then open it from KiCad:
+
+1. One time setup: copy the plugin with `cp -R kicad-ai-extension/plugin ~/Documents/KiCad/10.0/plugins/ai-schematic-generator`,
+   then in KiCad go to **Preferences → Plugins** and check **Enable KiCad API**. Restart KiCad.
+2. Open your project and open the **PCB Editor**. On KiCad 10 plugin buttons only show up there (KiCad 11 has them in the
+   Schematic Editor too). The first time, KiCad takes a few seconds to set up the plugin.
+3. Click the **AI Schematic Generator** button on the top toolbar. The CircuitForge window opens next to KiCad. Clicking
+   it again brings the window to the front.
+
+The service has to be running (step 1) or the button falls back to a small dialog that tells you so. No KiCad handy?
+Open http://127.0.0.1:8765 in a browser, or run `python -m app.desktop` in `kicad-ai-extension/backend`.
 
 Try: *"555 timer blinking a blue LED at 2 Hz on 9V"*, or *"red LED blinks when the button is pressed once, green LED
 blinks if it's pressed twice within 0.5 s"* (that one makes a Nano and the code).
