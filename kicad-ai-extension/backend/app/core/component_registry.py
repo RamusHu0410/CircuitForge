@@ -30,6 +30,7 @@ class ComponentKind:
     footprint: str
     default_value: str
     pin_aliases: dict[str, str] = field(default_factory=dict)  # alias (lowercase) -> pin number
+    optional_pins: frozenset[str] = frozenset()  # power-input pins that may stay unconnected
 
 
 COMPONENT_KINDS: dict[str, ComponentKind] = {
@@ -62,6 +63,23 @@ COMPONENT_KINDS: dict[str, ComponentKind] = {
             "potentiometer", "Device:R_Potentiometer", "RV", "Potentiometer (pin 2 is the wiper)",
             "Potentiometer_THT:Potentiometer_Bourns_3386P_Vertical", "10k",
             {"wiper": "2", "w": "2"},
+        ),
+        ComponentKind(
+            "arduino_uno", "MCU_Module:Arduino_UNO_R3", "A", "Arduino Uno R3 board (digital pins D0-D13, +5V, GND)",
+            "Module:Arduino_UNO_R3", "Arduino_UNO_R3",
+            {"5v": "5", "+5v": "5", "3v3": "4", "gnd": "6", "vin": "8"},
+            optional_pins=frozenset({"8"}),  # VIN may be left unconnected when the board is USB powered
+        ),
+        ComponentKind(
+            "shift_register_74hc595", "74xx:74HC595", "U", "74HC595 8-bit serial-in, parallel-out shift register (DIP-16)",
+            "Package_DIP:DIP-16_W7.62mm", "74HC595",
+            {"ser": "14", "data": "14", "srclk": "11", "clock": "11", "rclk": "12", "latch": "12",
+             "oe": "13", "srclr": "10", "qh'": "9"},
+        ),
+        ComponentKind(
+            "buzzer", "Device:Buzzer", "BZ", "Piezo buzzer (+ on pin 1, - on pin 2)",
+            "Buzzer_Beeper:Buzzer_12x9.5RM7.6", "Buzzer",
+            {"+": "1", "positive": "1", "-": "2", "negative": "2"},
         ),
         ComponentKind(
             "battery", "Device:Battery", "BT", "Battery / DC supply (+ on pin 1, - on pin 2)",

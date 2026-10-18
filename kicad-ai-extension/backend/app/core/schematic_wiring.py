@@ -59,8 +59,37 @@ def _manhattan(a: Cell, b: Cell) -> int:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
+def _prune_dead_ends(router: WireRouter, net: str, keep: set[Cell]) -> set[Cell]:
+    """Remove wire pieces that lead nowhere (leaf cells not in `keep`) and free their cells.
+
+    A leaf that isn't a pin would be a dangling wire end in KiCad (an ERC warning). Returns the
+    cells still used by the net.
+    """
+    edges = router.edges[net]
+    while True:
+        degree: dict[Cell, int] = {}
+        for a, b in edges:
+            degree[a] = degree.get(a, 0) + 1
+            degree[b] = degree.get(b, 0) + 1
+        leaves = {cell for cell, d in degree.items() if d == 1 and cell not in keep}
+        if not leaves:
+            return set(degree)
+        for edge in [e for e in edges if e[0] in leaves or e[1] in leaves]:
+            edges.discard(edge)
+        for cell in leaves:
+            if router.owner.get(cell) == net:
+                del router.owner[cell]
+
+
 def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, buses: dict[str, int]) -> Wiring:
     pin_net = {pin: net for net, pins in circuit.net_pins.items() for pin in pins}
+    layout = circuit.spec.layout
+    remote = set(layout.remote_nets) if layout else set()
+    hub = layout.hub if layout else None
+
+    def is_remote(net: str, site: PinSite) -> bool:
+        """True if the pin is drawn by name (label / power symbol) rather than wired."""
+        return net in remote and site.ref != hub
 
     sites: dict[tuple[str, str], PinSite] = {}
     all_cells: list[Cell] = []
@@ -142,9 +171,10 @@ def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, 
                 tips.setdefault(tip, []).append(site)
 
         tree: set[Cell] = set()
-        if name in buses and tips:
+        routed_tips = [t for t, group in tips.items() if any(not is_remote(name, s) for s in group)]
+        if name in buses and routed_tips:
             row = buses[name]
-            i0, i1 = min(t[0] for t in tips), max(t[0] for t in tips)
+            i0, i1 = min(t[0] for t in routed_tips), max(t[0] for t in routed_tips)
             cells = [(i, row) for i in range(i0, i1 + 1)]
             if all(router.can_use(c, name) for c in cells):
                 for c in cells:
@@ -153,11 +183,13 @@ def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, 
                     router.add_edge(name, a, b)
                 tree = set(cells)
 
-        pending = sorted(tips)
+        routed = {t: [s for s in group if not is_remote(name, s)] for t, group in tips.items()}
+        routed = {t: group for t, group in routed.items() if group}
+        pending = sorted(routed)
         if not tree and pending:
             first = pending.pop(0)
             tree = {first}
-            for s in tips[first]:
+            for s in routed[first]:
                 s.connected = True
         while pending:
             tip = min(pending, key=lambda t: min(_manhattan(t, c) for c in tree))
@@ -169,13 +201,21 @@ def wire_nets(circuit: ResolvedCircuit, placed: list[PlacedSymbol], grid: Grid, 
             if path:
                 router.commit_path(name, path)
                 tree.update(path)
-                for s in tips[tip]:
+                for s in routed[tip]:
                     s.connected = True
         if name in buses:
-            for tip in tips:
+            for tip in routed:
                 if tip in tree:
-                    for s in tips[tip]:
+                    for s in routed[tip]:
                         s.connected = True
-        nw.tree = tree
+
+        # A rail can be drawn further than the pins that ended up using it. Drop dead-end pieces.
+        keep = {s.cell for s in nw.sites if s.cell is not None}
+        if any(not s.connected for s in nw.sites):
+            keep |= set(tips)  # labels hang off these tips
+        tree = _prune_dead_ends(router, name, keep) | (tree & keep)
+        # Pins drawn by name keep their short stub, but it is not part of the net's wire tree.
+        remote_cells = {c for s in nw.sites if is_remote(name, s) for c in (s.cell, s.stub) if c is not None}
+        nw.tree = tree - remote_cells
 
     return Wiring(router=router, sites=sites, nets=nets, no_connects=no_connects, pin_cells=pin_cells)

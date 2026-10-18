@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowUp, ChevronDown, Settings as SettingsIcon, X } from "lucide-react";
+import { ArrowUp, ChevronDown, Cpu, Settings as SettingsIcon, X } from "lucide-react";
 import type { Activity, Check, KiCadStatus, Level, Part } from "../types";
 import { levelLabel } from "../data/explain";
 
@@ -134,14 +134,17 @@ export function PreviewMenu({ onOpen }: { onOpen: (k: PreviewKind) => void }) {
 
 interface ComposerProps {
   onSend: (text: string) => void;
+  /** Build the described circuit with POST /api/generate and offer to open it in KiCad. */
+  onGenerate: (text: string) => void;
   busy: boolean;
   level: Level;
   onCycleLevel: () => void;
   kicad: KiCadStatus;
 }
 
-export function Composer({ onSend, busy, level, onCycleLevel, kicad }: ComposerProps) {
+export function Composer({ onSend, onGenerate, busy, level, onCycleLevel, kicad }: ComposerProps) {
   const [text, setText] = useState("");
+  const [hint, setHint] = useState(false);
   const ta = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -150,6 +153,18 @@ export function Composer({ onSend, busy, level, onCycleLevel, kicad }: ComposerP
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [text]);
+
+  const generate = () => {
+    const t = text.trim();
+    if (t) {
+      setHint(false);
+      onGenerate(t);
+    } else {
+      // Nothing to build yet: take the user to the box and say what to type.
+      setHint(true);
+      ta.current?.focus();
+    }
+  };
 
   const send = () => {
     const t = text.trim();
@@ -160,6 +175,11 @@ export function Composer({ onSend, busy, level, onCycleLevel, kicad }: ComposerP
 
   return (
     <div className="composer">
+      {hint && (
+        <div className="composer-hint" role="status">
+          Type the circuit you want first, for example "555 timer blinking an LED at 2 Hz on 9V", then click <b>generate circuit</b>.
+        </div>
+      )}
       <div className="composer-row">
         <div className="composer-box">
           <span className="caret">&gt;</span>
@@ -167,8 +187,11 @@ export function Composer({ onSend, busy, level, onCycleLevel, kicad }: ComposerP
             ref={ta}
             rows={1}
             value={text}
-            placeholder='Try "make the LED brighter"'
-            onChange={(e) => setText(e.target.value)}
+            placeholder='Describe a circuit, e.g. "555 timer blinking an LED at 2 Hz on 9V", then click generate circuit'
+            onChange={(e) => {
+              setText(e.target.value);
+              setHint(false);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -180,6 +203,14 @@ export function Composer({ onSend, busy, level, onCycleLevel, kicad }: ComposerP
             }}
           />
         </div>
+        <motion.button
+          className="btn gen-open"
+          whileTap={{ scale: 0.96 }}
+          onClick={generate}
+          title="Build the circuit you described (LED, divider, filter, 555 blinker, regulator, button, transistor) and open it in KiCad"
+        >
+          <Cpu size={15} /> generate circuit
+        </motion.button>
         <motion.button className={`send-btn${text.trim() ? " ready" : ""}`} whileTap={{ scale: 0.9 }} onClick={send} disabled={!text.trim() || busy} aria-label="Send" title="send">
           <ArrowUp size={18} />
         </motion.button>

@@ -30,6 +30,7 @@ def export_nets(files: SchematicFiles, kicad_cli: str, timeout_s: float = 60.0) 
 
     nets: dict[str, frozenset[tuple[str, str]]] = {}
     nets_node = sexpr.child(tree, "nets")
+    # Every pin we marked no-connect shows up in KiCad as its own one-pin "unconnected-(...)" net.
     for net in sexpr.children(nets_node or [], "net"):
         name_node = sexpr.child(net, "name")
         name = str(name_node[1]) if name_node else "?"
@@ -39,6 +40,6 @@ def export_nets(files: SchematicFiles, kicad_cli: str, timeout_s: float = 60.0) 
             pin = sexpr.child(node, "pin")
             if ref and pin and not str(ref[1]).startswith("#"):
                 nodes.add((str(ref[1]), str(pin[1])))
-        if nodes:
+        if nodes and not (name.lstrip("/").startswith("unconnected-") and len(nodes) == 1):
             nets[name.lstrip("/")] = frozenset(nodes)
     return nets

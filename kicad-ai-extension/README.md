@@ -178,3 +178,14 @@ examples/kicad10_test_project/ test project used for KiCad 10 testing
   ~/Library/Caches/KiCad/10.0/python-environments/com.curcuitforge.ai-schematic-generator/bin/python \
     ~/Documents/KiCad/10.0/plugins/ai-schematic-generator/entrypoint.py --check
   ```
+
+## Microcontroller projects (complex prompts)
+
+Prompts that mention joysticks, buttons, knobs, LEDs, a buzzer or a game (for example "two-player football game
+with two joysticks and LEDs for game state and scoring") are built around an Arduino Uno:
+
+1. The prompt becomes a `SystemPlan` (modules and counts) by rules (`app/ai/system_rules.py`) or, optionally, by a
+   language model (`app/ai/llm_planner.py`; set `LLM_API_KEY` and `LLM_MODEL`; the prompt is sent to that service).
+2. `app/ai/system_designer.py` assigns Uno pins, sizes LED resistors and moves LEDs onto 74HC595 shift registers
+   when pins run out. The model never picks pins, nets or values.
+3. Blocks are drawn separately and joined by net labels and power symbols; validation and KiCad ERC run as usual.

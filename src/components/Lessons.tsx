@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import type { DesignParams, LessonId, Level } from "../types";
+import type { DesignParams, LessonId, Level, Net } from "../types";
 import { dischargeTime, fmtOhms, fmtSI, ledDesign, LOGIC, tau, texOhms, texSI, trim } from "../math";
 import { EXAMPLE_NETS } from "../data/example";
 import { EXPLAIN } from "../data/explain";
@@ -64,6 +64,10 @@ function Explain({ id, level }: { id: LessonId; level: Level }) {
 interface LessonProps {
   params: DesignParams;
   level: Level;
+  /** Nets of the built schematic. Defaults to the bundled example's. */
+  nets?: Net[];
+  /** Whether KiCad's ERC found a problem with the power nets. The bundled example has the PWR_FLAG problem on purpose. */
+  ercFailing?: boolean;
 }
 
 /* ---------- lessons ---------- */
@@ -233,21 +237,21 @@ function DebounceLesson({ params, level }: LessonProps) {
   );
 }
 
-function NetsLesson({ level }: LessonProps) {
-  const pins = EXAMPLE_NETS.flatMap((n) => n.pins);
+function NetsLesson({ level, nets = EXAMPLE_NETS, ercFailing = true }: LessonProps) {
+  const pins = nets.flatMap((n) => n.pins);
   const unique = new Set(pins).size === pins.length;
-  const gnd = EXAMPLE_NETS.find((n) => n.name === "GND")!;
+  const gnd = nets.find((n) => n.name === "GND");
   return (
     <div className="lesson">
       <Explain id="nets" level={level} />
       <Formulas
         items={[
-          tex`N_{GND} = \{${gnd.pins.map((p) => tex`\text{${p}}`).join(tex`,\ `)}\}`,
+          ...(gnd ? [tex`N_{GND} = \{${gnd.pins.map((p) => tex`\text{${p}}`).join(tex`,\ `)}\}`] : []),
           tex`\forall\, p:\ \bigl|\{\, n : p \in n \,\}\bigr| = 1 \qquad \forall\, n:\ |n| \ge 2`,
         ]}
       />
       <div className="net-table">
-        {EXAMPLE_NETS.map((n) => (
+        {nets.map((n) => (
           <div key={n.name}>
             <code>{n.name}</code>
             <span>{n.pins.join("  ")}</span>
@@ -255,7 +259,7 @@ function NetsLesson({ level }: LessonProps) {
         ))}
       </div>
       {unique ? <Ok>each of {pins.length} pins is in exactly one net</Ok> : <Bad>a pin is in two nets</Bad>}
-      <Bad>GND has no power source → add a PWR_FLAG</Bad>
+      {ercFailing ? <Bad>GND has no power source → add a PWR_FLAG</Bad> : <Ok>KiCad's ERC passes: GND has a PWR_FLAG</Ok>}
     </div>
   );
 }
@@ -278,8 +282,8 @@ function VerifyLesson({ params, level }: LessonProps) {
   );
 }
 
-export function Lesson({ id, params, level }: { id: LessonId } & LessonProps) {
-  const p = { params, level };
+export function Lesson({ id, params, level, nets, ercFailing }: { id: LessonId } & LessonProps) {
+  const p = { params, level, nets, ercFailing };
   switch (id) {
     case "parse":
       return <ParseLesson {...p} />;

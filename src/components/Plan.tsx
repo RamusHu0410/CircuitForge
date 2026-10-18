@@ -53,7 +53,7 @@ function Welcome({ project, isExample, kicad, level }: { project: Project; isExa
       <div className="welcome-tips">
         <div className="tips-title">Tips for getting started</div>
         <ol>
-          <li>Describe a circuit in the box below</li>
+          <li>Describe a circuit in the box below, then click <b>generate circuit</b></li>
           <li>Click any step to see the math</li>
           <li>Open the tutorial for a guided walkthrough</li>
           <li>
@@ -145,7 +145,7 @@ function StepRow({ step, i, open, flash, project, level, onToggle }: StepRowProp
         {open && step.lesson && (
           <motion.div className="tool-detail-wrap" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}>
             <div className="tool-detail">
-              <Lesson id={step.lesson} params={project.params} level={level} />
+              <Lesson id={step.lesson} params={project.params} level={level} nets={project.nets} ercFailing={project.checks.some((c) => c.id.startsWith("c-erc") && c.status === "fail")} />
             </div>
           </motion.div>
         )}
@@ -200,7 +200,10 @@ export function Plan({ project, isExample, messages, openSteps, flashStep, level
         <span className="bullet text">⏺</span>
         <span>
           Done. {project.checks.length - issues}/{project.checks.length} checks pass.
-          {issues > 0 && " One thing to fix before KiCad's ERC passes: add a PWR_FLAG to the GND net."}
+          {issues > 0 &&
+            (isExample
+              ? " One thing to fix before KiCad's ERC passes: add a PWR_FLAG to the GND net."
+              : ` ${issues === 1 ? "One check needs" : `${issues} checks need`} attention. Click ${issues === 1 ? "it" : "them"} on the right to see why.`)}
         </span>
       </motion.div>
 

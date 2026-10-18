@@ -59,7 +59,7 @@ class PinRef(_Strict):
 
 class NetSpec(_Strict):
     name: NetName
-    connections: list[PinRef] = Field(min_length=1, max_length=50)
+    connections: list[PinRef] = Field(min_length=1, max_length=150)
 
 
 class Placement(_Strict):
@@ -78,6 +78,14 @@ class Placement(_Strict):
     mirror: bool = False
 
 
+class Caption(_Strict):
+    """A short text drawn on the sheet (e.g. a block title), top-left at a grid cell."""
+
+    col: int = Field(ge=-200, le=400)
+    row: int = Field(ge=-200, le=400)
+    text: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+
+
 class Layout(_Strict):
     """Optional drawing hints. Without them the renderer uses an automatic grid."""
 
@@ -85,14 +93,25 @@ class Layout(_Strict):
     buses: dict[NetName, int] = Field(
         default_factory=dict, description="Nets drawn as one straight horizontal wire at this row"
     )
+    remote_nets: list[NetName] = Field(
+        default_factory=list,
+        description=(
+            "Nets drawn by name instead of by wire: every pin gets a net label (or a power symbol for "
+            "rails such as GND and +5V). Only the `hub` component's pins on such a net stay wired together."
+        ),
+    )
+    hub: Reference | None = Field(
+        default=None, description="Component (e.g. the microcontroller) whose pins on remote nets stay wired"
+    )
+    captions: list[Caption] = Field(default_factory=list, max_length=60)
 
 
 class CircuitSpec(_Strict):
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
     description: Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)] = ""
-    components: list[ComponentSpec] = Field(min_length=1, max_length=60)
-    nets: list[NetSpec] = Field(min_length=1, max_length=100)
-    notes: list[Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=list, max_length=20)
+    components: list[ComponentSpec] = Field(min_length=1, max_length=150)
+    nets: list[NetSpec] = Field(min_length=1, max_length=250)
+    notes: list[Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=list, max_length=30)
     layout: Layout | None = None
 
 

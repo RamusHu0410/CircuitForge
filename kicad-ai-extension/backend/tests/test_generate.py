@@ -82,5 +82,5 @@ def test_get_not_allowed(client: TestClient) -> None:
 
 def test_capabilities(client: TestClient) -> None:
     body = client.get("/api/capabilities").json()
-    assert len(body["circuits"]) == 7
+    assert len(body["circuits"]) == 8
     assert "timer_555" in body["component_kinds"]

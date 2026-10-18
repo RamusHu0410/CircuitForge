@@ -3,12 +3,13 @@ import { MotionConfig } from "motion/react";
 import type { Activity, ActivityKind, ChatMessage, Check, KiCadStatus, Level, Project, Settings } from "./types";
 import { levelLabel, nextLevel } from "./data/explain";
 import { EXAMPLE_PROJECT } from "./data/example";
-import { connectKiCad, ENGINE_URL, fetchKiCadColors, KICAD_BRIDGE_URL, NotConnectedError, requestPlan, sendToKiCad } from "./api/client";
+import { connectKiCad, ENGINE_URL, fetchKiCadColors, KICAD_BRIDGE_URL, NotConnectedError, requestPlan, RequestError, SERVICE_DOWN, sendToKiCad } from "./api/client";
 import { TutorialCard } from "./components/Tutorial";
 import { TutorialOverlay, chapterProgress, type TutorialProgress } from "./components/tutorial/TutorialShell";
 import { Plan } from "./components/Plan";
 import { ChecksPanel, Composer, Modal, PartsMini, PreviewMenu, UtilityPanel, type PreviewKind } from "./components/Panels";
-import { Schematic } from "./components/Schematic";
+import { SchematicPreview } from "./components/SchematicPreview";
+import { GeneratedCircuitView } from "./components/GeneratedCircuitView";
 
 const SETTINGS_KEY = "circuitforge.settings";
 const DEFAULT_SETTINGS: Settings = { kicadVersion: "9", level: "beginner" };
@@ -37,6 +38,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [kicad, setKicad] = useState<KiCadStatus>("disconnected");
+  const [generating, setGenerating] = useState<{ prompt: string; run: number } | null>(null);
   const ids = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -50,6 +52,15 @@ export default function App() {
     fetchKiCadColors()
       .then((vars) => Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v)))
       .catch(() => undefined);
+    // Check for KiCad quietly. If the engine isn't running yet, the status just stays "not connected".
+    connectKiCad()
+      .then((s) => {
+        if (s.status === "connected") {
+          setKicad("connected");
+          log("success", `kicad ${s.version ?? ""} found`.replace("  ", " "));
+        }
+      })
+      .catch(() => log("warn", "engine not running"));
   }, [log]);
 
   useEffect(() => {
@@ -85,12 +96,20 @@ export default function App() {
       setProject(next);
       setIsExample(false);
       setOpenSteps(new Set());
-      update({ state: "done", note: "plan updated" });
-      log("success", "plan updated");
+      update({ state: "done", note: next.summary ?? "plan updated" });
+      log("success", next.summary ?? "plan updated");
     } catch (e) {
-      const notConnected = e instanceof NotConnectedError;
-      update({ state: notConnected ? "not-connected" : "error", note: notConnected ? "engine not connected" : (e as Error).message });
-      log(notConnected ? "warn" : "error", notConnected ? "engine not connected" : (e as Error).message);
+      if (e instanceof NotConnectedError) {
+        update({ state: "not-connected", note: `engine not running. ${SERVICE_DOWN}` });
+        log("warn", "engine not connected");
+      } else if (e instanceof RequestError && e.status === 422) {
+        // The engine understood the request but can't do it; its message says what it can do.
+        update({ state: "declined", note: e.message });
+        log("warn", "engine can't do that");
+      } else {
+        update({ state: "error", note: (e as Error).message });
+        log("error", (e as Error).message);
+      }
     }
   };
 
@@ -98,20 +117,21 @@ export default function App() {
   const connect = async () => {
     setKicad("connecting");
     try {
-      setKicad(await connectKiCad());
-      log("success", "kicad connected");
-    } catch {
+      const s = await connectKiCad();
+      setKicad(s.status);
+      log(s.status === "connected" ? "success" : "warn", s.status === "connected" ? `kicad ${s.version ?? ""} connected`.replace("  ", " ") : s.detail);
+    } catch (e) {
       setKicad("disconnected");
-      log("warn", "kicad not connected");
+      log("warn", e instanceof NotConnectedError ? "engine not running" : (e as Error).message);
     }
   };
 
   const pushToKiCad = async () => {
     try {
-      await sendToKiCad(project);
-      log("success", "sent to kicad");
-    } catch {
-      log("warn", "kicad not connected");
+      const sent = await sendToKiCad(project);
+      log(sent.openedInKicad ? "success" : "warn", sent.openedInKicad ? `opened in kicad: ${sent.schematicPath}` : (sent.openError ?? `saved ${sent.schematicPath}`));
+    } catch (e) {
+      log("warn", e instanceof NotConnectedError ? "engine not running" : (e as Error).message);
     }
   };
 
@@ -150,10 +170,12 @@ export default function App() {
   /** Used by the tutorial's "Generate in KiCad": rethrows so the button can show the failure. */
   const generateInKiCad = async () => {
     try {
-      await sendToKiCad(project);
-      log("success", "sent to kicad");
+      const sent = await sendToKiCad(project);
+      log("success", `saved ${sent.schematicPath}`);
+      // Saved but KiCad couldn't be launched: report it instead of claiming it was placed.
+      if (!sent.openedInKicad) throw new Error(sent.openError ?? "Saved the schematic, but KiCad did not open it");
     } catch (e) {
-      log("warn", "kicad not connected");
+      log("warn", e instanceof NotConnectedError ? "engine not running" : (e as Error).message);
       throw e;
     }
   };
@@ -189,7 +211,7 @@ export default function App() {
       </aside>
 
       <div className="bottom">
-        <Composer onSend={send} busy={sending} level={settings.level} onCycleLevel={() => setLevel(nextLevel(settings.level))} kicad={kicad} />
+        <Composer onSend={send} onGenerate={(prompt) => { log("info", "generate circuit"); setGenerating({ prompt, run: ++ids.current }); }} busy={sending} level={settings.level} onCycleLevel={() => setLevel(nextLevel(settings.level))} kicad={kicad} />
       </div>
 
       <input
@@ -232,10 +254,12 @@ export default function App() {
           }
         >
           <div className="sheet">
-            <Schematic />
+            <SchematicPreview project={project} isExample={isExample} />
           </div>
         </Modal>
       )}
+
+      {generating && <GeneratedCircuitView key={generating.run} prompt={generating.prompt} onClose={() => setGenerating(null)} onLog={log} />}
 
       {preview === "parts" && (
         <Modal title="parts" onClose={() => setPreview(null)}>
@@ -277,9 +301,9 @@ export default function App() {
               </button>
             </span>
             <span>bridge</span>
-            <span className="dim">{KICAD_BRIDGE_URL || "—"}</span>
+            <span className="dim">{KICAD_BRIDGE_URL || "/api (dev proxy)"}</span>
             <span>engine</span>
-            <span className="dim">{ENGINE_URL || "—"}</span>
+            <span className="dim">{ENGINE_URL || "/api (dev proxy)"}</span>
             <span>colors</span>
             <span className="dim">{kicad === "connected" ? "from kicad" : "kicad default"}</span>
           </div>

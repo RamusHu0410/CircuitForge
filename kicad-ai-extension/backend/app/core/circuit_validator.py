@@ -120,16 +120,20 @@ def validate_circuit(spec: CircuitSpec) -> ResolvedCircuit:
                 Issue(code="SINGLE_PIN_NET", message=f"Net {net.name} connects only one pin.", net=net.name)
             )
 
+    kind_of = {c.ref: COMPONENT_KINDS.get(c.kind) for c in spec.components}
     unconnected: dict[str, list[str]] = {}
     for ref, symbol in symbols.items():
         missing = [p.number for p in symbol.pins if (ref, p.number) not in owner]
         if not missing:
             continue
         unconnected[ref] = missing
+        optional = kind_of[ref].optional_pins if kind_of.get(ref) else frozenset()
         for number in missing:
             pin = symbol.pin(number)
             label = f"{number} ({pin.name})" if pin.name else number
-            if pin.electrical_type.startswith("power"):
+            # A power *input* with nothing feeding it is a mistake; an unused power output (a board's
+            # 3V3 pin) or a pin the part marks optional (VIN on a USB-powered board) is not.
+            if pin.electrical_type == "power_in" and number not in optional:
                 errors.append(
                     Issue(code="POWER_PIN_UNCONNECTED", message=f"{ref} power pin {label} is not connected.", ref=ref)
                 )

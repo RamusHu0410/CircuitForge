@@ -329,7 +329,9 @@ def _auto_layout(circuit: ResolvedCircuit, grid: Grid) -> list[PlacedSymbol]:
 # --- Attachments (power symbols, flags, labels) -----------------------------------------------
 
 
-def _attach_tip(wiring: Wiring, nw: NetWiring, direction: Direction, taken: list[Cell]) -> Cell | None:
+def _attach_tip(
+    wiring: Wiring, nw: NetWiring, direction: Direction, taken: list[Cell], spacing: int = 3
+) -> Cell | None:
     """Reserve a short stub off the net's wire tree for a power symbol/flag; returns the tip cell."""
     router = wiring.router
     key = (lambda c: (c[1], c[0])) if direction == UP else (lambda c: (-c[1], c[0]))
@@ -337,10 +339,11 @@ def _attach_tip(wiring: Wiring, nw: NetWiring, direction: Direction, taken: list
         tip = (cell[0] + direction[0], cell[1] + direction[1])
         beyond = (tip[0] + direction[0], tip[1] + direction[1])
         beyond2 = (beyond[0] + direction[0], beyond[1] + direction[1])
-        sides = [(tip[0] - 1, tip[1]), (tip[0] + 1, tip[1]), (beyond[0] - 1, beyond[1]), (beyond[0] + 1, beyond[1])]
-        if any(abs(tip[0] - t[0]) < 3 and abs(tip[1] - t[1]) < 3 for t in taken):
+        px, py = (1, 0) if direction[0] == 0 else (0, 1)  # perpendicular to the stub
+        sides = [(tip[0] - px, tip[1] - py), (tip[0] + px, tip[1] + py), (beyond[0] - px, beyond[1] - py), (beyond[0] + px, beyond[1] + py)]
+        if any(abs(tip[0] - t[0]) < spacing and abs(tip[1] - t[1]) < spacing for t in taken):
             continue
-        cells = [tip, beyond, beyond2, *sides]
+        cells = [tip, beyond, beyond2, *(sides if direction[0] == 0 else [])]  # symbols beside a wire are not checked
         if any(c in nw.tree or (router.in_bounds(c) is False) or router.owner.get(c) is not None for c in cells):
             continue
         router.owner[tip] = nw.name
@@ -394,6 +397,22 @@ def _pick_label_node(wiring: Wiring, nw: NetWiring, nodes: set[Cell]) -> tuple[C
     return (candidates[0], UP) if candidates else None
 
 
+def _draw_remote_net(ctx: _Ctx, grid: Grid, net: str, nw: NetWiring, symbol_nets: set[str]) -> None:
+    """Connect a net by name: a label at every pin, or a power symbol at every pin for rails.
+
+    Pins that were wired (the layout's hub) already carry the net's power symbol and PWR_FLAG when
+    it is a rail, so only the other pins get a symbol of their own.
+    """
+    is_rail = net in POWER_SYMBOLS
+    for site in nw.sites:
+        point = grid.point(site.label_cell) if site.label_cell else site.point
+        if is_rail and not site.connected:
+            _power_symbol(ctx, POWER_SYMBOLS[net], net, point, site.out)
+        elif not is_rail or net not in symbol_nets:
+            # Horizontal text reads best, so vertical pins get their label pointing left.
+            _label(ctx, net, point, site.out if site.out in (LEFT, RIGHT) else LEFT)
+
+
 # --- Document -------------------------------------------------------------------------------
 
 
@@ -432,6 +451,7 @@ def render_schematic(
     symbol_tips: list[tuple[str, str, Cell, Direction]] = []  # (lib_id, value, tip, direction)
     label_wanted: set[str] = set()
     symbol_nets: set[str] = set()  # nets named by a power symbol (never also by a local label)
+    remote = set(spec.layout.remote_nets) if spec.layout else set()  # nets drawn by name, not by wire
     for net, nw in wiring.nets.items():
         taken: list[Cell] = []
         has_symbol = False
@@ -445,8 +465,15 @@ def render_schematic(
         if needs_flag(circuit, net) and nw.tree:
             direction = DOWN if net == "GND" else UP
             tip = _attach_tip(wiring, nw, direction, taken)
+            for side in (RIGHT, LEFT):  # a small wire tree (e.g. one part's pins) may have no room above/below
+                if tip:
+                    break
+                direction = side
+                tip = _attach_tip(wiring, nw, side, taken, spacing=2)
             if tip:
                 symbol_tips.append((PWR_FLAG, "PWR_FLAG", tip, direction))
+        if net in remote:
+            continue  # its labels / power symbols are drawn below
         if nw.failed_sites or (not has_symbol and len(nw.sites) >= 3 and not needs_power_symbol(circuit, net)):
             label_wanted.add(net)
         elif needs_power_symbol(circuit, net) and not has_symbol:
@@ -464,6 +491,9 @@ def render_schematic(
         for cell in sorted(junctions):
             _junction(ctx, grid.point(cell))
 
+        if net in remote:
+            _draw_remote_net(ctx, grid, net, nw, symbol_nets)
+            continue
         if net not in label_wanted:
             continue
         # Pins whose wires could not be completed are connected by name.
@@ -481,6 +511,9 @@ def render_schematic(
 
     for point in wiring.no_connects:
         _no_connect(ctx, point)
+
+    for caption in spec.layout.captions if spec.layout else []:
+        _text(ctx, caption.text, grid.point((caption.col, caption.row)))
 
     # Notes under the drawing.
     cells = [c for edges in router.edges.values() for edge in edges for c in edge]

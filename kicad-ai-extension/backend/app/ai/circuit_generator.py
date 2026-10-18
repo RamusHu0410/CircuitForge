@@ -34,6 +34,9 @@ SUPPORTED_CIRCUITS = [
     "Linear regulator (e.g. '5V regulator from 12V', '3.3V LDO from 5V with power LED')",
     "Push button with pull-up/pull-down (e.g. 'push button with pull-up on 3.3V')",
     "NPN transistor switch (e.g. 'transistor to switch an LED from a 3.3V GPIO on 5V')",
+    "Arduino Uno projects built from joysticks, buttons, knobs, LED groups and a buzzer "
+    "(e.g. 'two-player football game with two joysticks and LEDs for game state and scoring'; "
+    "LEDs move to 74HC595 shift registers when the Uno runs out of pins)",
 ]
 
 

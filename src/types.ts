@@ -34,7 +34,13 @@ export interface DesignParams {
   ledTargetMa: number; // mA
   ledResistor: number; // Ω
   pullDown: number; // Ω
-  debounceCapNf: number; // nF
+  debounceCapNf: number; // nF; 0 = no capacitor
+  ledColor?: "red" | "orange" | "yellow" | "green" | "blue" | "white"; // set by the engine; the example omits it
+}
+
+export interface Net {
+  name: string;
+  pins: string[];
 }
 
 export interface Project {
@@ -43,17 +49,16 @@ export interface Project {
   params: DesignParams;
   steps: Step[];
   checks: Check[];
-}
-
-export interface Net {
-  name: string;
-  pins: string[];
+  /** Nets of the built schematic. The bundled example omits it and the UI uses EXAMPLE_NETS. */
+  nets?: Net[];
+  /** What the engine just did, in a sentence ("Updated: LED current 20 mA (brighter)"). */
+  summary?: string;
 }
 
 export interface ChatMessage {
   id: number;
   text: string;
-  state: "sending" | "done" | "not-connected" | "error";
+  state: "sending" | "done" | "declined" | "not-connected" | "error"; // declined: the engine understood but can't do that
   note?: string;
 }
 
