@@ -19,6 +19,34 @@ sys.path.insert(0, str(PLUGIN_DIR))
 # (status, headers, body) returned for a request path.
 Responder = Callable[[str, str, bytes], tuple[int, dict[str, str], bytes]]
 
+# Shape of a real /api/generate response (trimmed schematic text).
+GENERATED_RESPONSE = {
+    "request_id": "abc123",
+    "status": "generated",
+    "message": "Generated 'Red LED indicator' with 3 components.",
+    "prompt": "LED",
+    "generator": "rules",
+    "circuit": {
+        "title": "Red LED indicator",
+        "description": "",
+        "components": [
+            {"ref": "J1", "kind": "connector_2pin", "value": "Power", "purpose": "5V input"},
+            {"ref": "R1", "kind": "resistor", "value": "330", "purpose": "LED current limiting"},
+            {"ref": "D1", "kind": "led", "value": "LED_Red", "purpose": ""},
+        ],
+        "nets": [],
+        "notes": ["R1 = 330 for 9.1 mA."],
+    },
+    "validation": {"valid": True, "errors": [], "warnings": []},
+    "erc": {"ran": True, "passed": True, "error_count": 0, "warning_count": 0, "violations": [],
+            "message": "ERC passed with no issues."},
+    "files": {
+        "name": "red_led_indicator",
+        "schematic": '(kicad_sch\n\t(version 20260306)\n\t(symbol (instances (project "red_led_indicator"))))\n',
+        "project": '{"meta": {"filename": "red_led_indicator.kicad_pro"}}\n',
+    },
+}
+
 
 class FakeBackend:
     """A real HTTP server on 127.0.0.1 with scriptable responses."""
@@ -27,12 +55,7 @@ class FakeBackend:
         self.routes: dict[tuple[str, str], Responder] = {}
         self.requests: list[tuple[str, str, bytes]] = []
         self.set_json("GET", "/api/health", 200, {"status": "ok", "service": "kicad-ai-schematic-backend"})
-        self.set_json(
-            "POST",
-            "/api/generate",
-            200,
-            {"request_id": "abc123", "status": "not_implemented", "message": "Not implemented yet.", "prompt": "x"},
-        )
+        self.set_json("POST", "/api/generate", 200, GENERATED_RESPONSE)
 
         backend = self
 

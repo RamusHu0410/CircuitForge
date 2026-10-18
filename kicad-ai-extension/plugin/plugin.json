@@ -5,15 +5,15 @@
   "description": "Describe a circuit in plain language and generate a KiCad schematic. Requires the local backend.",
   "runtime": {
     "type": "python",
-    "min_version": "3.10"
+    "min_version": "3.9"
   },
   "actions": [
     {
       "identifier": "generate-schematic",
       "name": "AI Schematic Generator",
-      "description": "Describe a circuit in plain language and send it to the local AI backend",
+      "description": "Describe a circuit in plain language and generate a new KiCad schematic",
       "show-button": true,
-      "scopes": ["schematic"],
+      "scopes": ["pcb", "schematic"],
       "entrypoint": "entrypoint.py",
       "icons-light": ["icons/icon-light-24.png", "icons/icon-light-48.png"],
       "icons-dark": ["icons/icon-dark-24.png", "icons/icon-dark-48.png"]

@@ -12,3 +12,9 @@ venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# KiCad local/per-user files and generated output
+*.kicad_prl
+fp-info-cache
+*-backups/
+ai_generated/

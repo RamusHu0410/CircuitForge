@@ -1,9 +1,10 @@
 """Connection to the running KiCad instance via the official IPC API (kicad-python).
 
 KiCad sets KICAD_API_SOCKET and KICAD_API_TOKEN when it launches the plugin;
-`kipy.KiCad()` reads them automatically. For this step the plugin only reads
-the KiCad version and the open schematic's project name to send as context.
-It does not modify any document.
+`kipy.KiCad()` reads them automatically. The plugin only *reads* from KiCad:
+the version, the open project's folder (where generated files are saved),
+and the path of the Schematic Editor binary (to open the result). It never
+modifies an open document.
 
 A failed connection is never fatal: the dialog still opens and the backend can
 still be reached. The reason is returned so it can be shown to the user.
@@ -22,6 +23,8 @@ class KiCadContext:
     connected: bool
     kicad_version: str | None = None
     project_name: str | None = None
+    project_dir: str | None = None
+    eeschema_path: str | None = None
     error: str | None = None
 
     def as_request_context(self) -> dict[str, str]:
@@ -35,8 +38,8 @@ class KiCadContext:
 
     def describe(self) -> str:
         if not self.connected:
-            return f"Not connected to KiCad ({self.error}). You can still send prompts."
-        project = f", project '{self.project_name}'" if self.project_name else ""
+            return f"Not connected to KiCad ({self.error}). You can still generate schematics."
+        project = f", project '{self.project_name}'" if self.project_name else ", no project open"
         return f"Connected to KiCad {self.kicad_version}{project}."
 
 
@@ -54,12 +57,29 @@ def get_kicad_context(timeout_ms: int = 2000) -> KiCadContext:
         logger.info("KiCad connection unavailable: %s", exc)
         return KiCadContext(connected=False, error=str(exc) or type(exc).__name__)
 
-    project_name = None
-    try:
-        documents = kicad.get_open_documents(DocumentType.DOCTYPE_SCHEMATIC)
+    project_name = project_dir = None
+    # KiCad 10 plugins run in the PCB Editor; KiCad 11 adds the Schematic Editor.
+    for doc_type in (DocumentType.DOCTYPE_PCB, DocumentType.DOCTYPE_SCHEMATIC):
+        try:
+            documents = kicad.get_open_documents(doc_type)
+        except Exception as exc:  # not every editor answers for every document type
+            logger.info("get_open_documents(%s) failed: %s", doc_type, exc)
+            continue
         if documents:
             project_name = documents[0].project.name or None
-    except Exception as exc:  # optional; older KiCad versions may not support this for schematics
-        logger.info("could not read open schematic documents: %s", exc)
+            project_dir = documents[0].project.path or None
+            break
 
-    return KiCadContext(connected=True, kicad_version=version.full_version or str(version), project_name=project_name)
+    eeschema_path = None
+    try:
+        eeschema_path = kicad.get_kicad_binary_path("eeschema") or None
+    except Exception as exc:
+        logger.info("could not get eeschema path: %s", exc)
+
+    return KiCadContext(
+        connected=True,
+        kicad_version=version.full_version or str(version),
+        project_name=project_name,
+        project_dir=project_dir,
+        eeschema_path=eeschema_path,
+    )

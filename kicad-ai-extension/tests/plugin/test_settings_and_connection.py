@@ -37,8 +37,9 @@ def test_kicad_not_running_is_not_fatal(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     assert context.connected is False
     assert context.error
+    assert context.project_dir is None
     assert context.as_request_context() == {}
-    assert "You can still send prompts" in context.describe()
+    assert "You can still generate" in context.describe()
 
 
 def test_context_fields_are_truncated() -> None:

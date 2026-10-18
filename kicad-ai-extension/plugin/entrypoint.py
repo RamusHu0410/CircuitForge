@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -35,6 +36,19 @@ def _configure_logging() -> None:
     )
 
 
+def _fix_tcl_paths() -> None:
+    """Point Tk at its script library when the interpreter can't find it on its own.
+
+    KiCad 10's bundled macOS Python ships the Tcl/Tk files under its own prefix,
+    but Tk looks relative to the plugin's virtual environment and fails with
+    "Can't find a usable init.tcl". Setting TCL_LIBRARY/TK_LIBRARY fixes that.
+    """
+    lib = Path(sys.base_prefix) / "lib"
+    for variable, folder, marker in (("TCL_LIBRARY", "tcl8.6", "init.tcl"), ("TK_LIBRARY", "tk8.6", "tk.tcl")):
+        if not os.environ.get(variable) and (lib / folder / marker).is_file():
+            os.environ[variable] = str(lib / folder)
+
+
 def _build():
     from actions.generate_schematic import GenerateSchematicAction
     from backend_client import BackendClient
@@ -50,9 +64,10 @@ def _build():
 def check() -> int:
     from backend_client import BackendError
 
-    settings, kicad, client, _ = _build()
+    settings, kicad, client, action = _build()
     print(f"Python:  {sys.version.split()[0]} ({sys.executable})")
     print(f"KiCad:   {kicad.describe()}")
+    print(f"Output:  {action.output_dir}")
     print(f"Backend: {settings.backend_url}")
     try:
         health = client.health()
@@ -61,10 +76,13 @@ def check() -> int:
         print(f"         FAILED - {exc}")
         return 1
     try:
-        import tkinter  # noqa: F401
-        print("Dialog:  Tkinter available")
-    except ImportError as exc:
-        print(f"Dialog:  Tkinter NOT available ({exc})")
+        import tkinter
+
+        root = tkinter.Tk()
+        root.destroy()
+        print("Dialog:  Tkinter OK")
+    except Exception as exc:  # ImportError or TclError
+        print(f"Dialog:  Tkinter NOT usable ({exc})")
         return 1
     return 0
 
@@ -75,20 +93,28 @@ def run() -> int:
     except ImportError as exc:
         print(
             "AI Schematic Generator: cannot open the dialog because Tkinter is not available in the "
-            f"Python used by KiCad ({sys.executable}): {exc}. Configure KiCad to use a Python with "
-            "Tkinter (Preferences > Plugins > Python interpreter). See the README.",
+            f"Python used by KiCad ({sys.executable}): {exc}. See the README.",
             file=sys.stderr,
         )
         return 1
 
+    from kicad_client.launcher import open_schematic, reveal
+
     _, kicad, _, action = _build()
-    logger.info("launching dialog; %s", kicad.describe())
-    run_dialog(action.submit, status_text=kicad.describe())
+    logger.info("launching dialog; %s; output to %s", kicad.describe(), action.output_dir)
+    status = f"{kicad.describe()} Files are saved to {action.output_dir}."
+    run_dialog(
+        action.submit,
+        status_text=status,
+        on_open=lambda path: open_schematic(path, kicad.eeschema_path),
+        on_reveal=reveal,
+    )
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     _configure_logging()
+    _fix_tcl_paths()
     parser = argparse.ArgumentParser(description="AI Schematic Generator KiCad plugin")
     parser.add_argument("--check", action="store_true", help="print KiCad and backend status without opening the UI")
     # KiCad may append extra arguments in future versions; ignore unknown ones.

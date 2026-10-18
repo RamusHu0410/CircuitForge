@@ -21,28 +21,29 @@ uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 # then copy plugin/ to ~/Documents/KiCad/11.0/plugins/ai-schematic-generator and restart KiCad
 ```
 
-| Method | URL | What it does |
-| --- | --- | --- |
-| GET | http://127.0.0.1:8765/api/health | Backend status |
-| POST | http://127.0.0.1:8765/api/generate | Takes `{"prompt": "..."}` and returns the placeholder response |
-| GET | http://127.0.0.1:8765/docs | Interactive API docs |
-| GET | http://127.0.0.1:8765/openapi.json | Machine-readable API spec |
+Health check: curl http://127.0.0.1:8765/api/health
 
-## Window layout
 
-| Area | What it shows |
-| --- | --- |
-| Top-left: **Tutorial** | Chapter list; the tab on its edge opens the full-window tutorial (`src/components/tutorial/`): 01 an interactive, simulated circuit (press SW1, slow-motion C1 discharge, scope, part inspector, guided steps) · 02 a math lab (live LaTeX, 3 explanation levels, gauges, safety checks, bounce simulation, Kirchhoff) · 03 a KiCad build sequence driving a build-up schematic + Generate in KiCad · 04 ERC diagnostics with before/after diagrams. |
-| Bottom-left | **Activity** feed, **Import / Export** (project JSON), **Settings** (KiCad version, connection). |
-| Middle: **Thought process** | Your request and each step the engine took, with *why*. Click a step for an interactive lesson with LaTeX formulas (Ohm's law, pull-downs, RC debounce, nets as a graph, Kirchhoff's laws). Explanations come in three levels — like I'm 5 / beginner / expert — cycled with Shift+Tab in the chat box. |
-| Right: **Checks** | ✓ / ✗ design checks; click one to jump to its step. |
-| Colors | White UI; the schematic uses KiCad's default colors and can follow the user's KiCad theme via the bridge (`fetchKiCadColors`). |
-| Top-right: **Preview design** | Schematic preview and parts list. |
-| Bottom: **Chat** | Describe a circuit or ask for a change; the button on the right sends it. |
+Method	URL	What it does
+GET	http://127.0.0.1:8765/api/health	Backend status
+POST	http://127.0.0.1:8765/api/generate	Takes {"prompt": "..."} and returns the placeholder response
+GET	http://127.0.0.1:8765/docs	Interactive API docs
+GET	http://127.0.0.1:8765/openapi.json	Machine-readable API spec
+POST /api/generate/save. It generates the circuit, saves it as a new KiCad project, and opens it in the Schematic Editor.
 
-## Backend placeholders
 
-All connections live in [`src/api/client.ts`](src/api/client.ts) and are **blank** (`ENDPOINTS.*` are
-empty, `VITE_ENGINE_URL` / `VITE_KICAD_BRIDGE_URL` unset — see `.env.example`). Until they exist,
-calls throw `NotConnectedError` and the UI says so. The window starts with a built-in example project
-(`src/data/example.ts`); its checks and lesson numbers are computed by [`src/math.ts`](src/math.ts).
+Request test:
+
+curl -s -X POST http://127.0.0.1:8765/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "3.3V LDO from 5V with power LED"}' \
+  | python3 -c "
+import json, sys, pathlib
+d = json.load(sys.stdin)
+f = d['files']
+out = pathlib.Path.home() / 'Documents' / 'KiCad' / 'ai_generated' / f['name']
+out.mkdir(parents=True, exist_ok=True)
+(out / (f['name'] + '.kicad_sch')).write_text(f['schematic'])
+(out / (f['name'] + '.kicad_pro')).write_text(f['project'])
+print('Saved to', out)
+"

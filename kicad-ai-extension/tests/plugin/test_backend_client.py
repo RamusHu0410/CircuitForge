@@ -16,8 +16,12 @@ def test_health_ok(fake_backend: FakeBackend) -> None:
 def test_generate_sends_prompt_and_context(fake_backend: FakeBackend) -> None:
     result = BackendClient(fake_backend.url).generate("LED blinker", {"kicad_version": "11.0.0"})
 
-    assert result.status == "not_implemented"
+    assert result.status == "generated"
     assert result.request_id == "abc123"
+    assert result.file_name == "red_led_indicator"
+    assert result.schematic.startswith("(kicad_sch")
+    assert result.erc_ran and result.erc_passed
+    assert result.components[1] == "R1 330 (LED current limiting)"
     method, path, body = fake_backend.requests[-1]
     assert (method, path) == ("POST", "/api/generate")
     assert json.loads(body) == {"prompt": "LED blinker", "context": {"kicad_version": "11.0.0"}}
@@ -83,9 +87,16 @@ def test_invalid_json(fake_backend: FakeBackend, payload: bytes) -> None:
 
 
 def test_missing_response_field(fake_backend: FakeBackend) -> None:
-    fake_backend.set_json("POST", "/api/generate", 200, {"status": "not_implemented"})
-    with pytest.raises(BackendResponseError, match="missing field"):
+    fake_backend.set_json("POST", "/api/generate", 200, {"status": "generated"})
+    with pytest.raises(BackendResponseError, match="missing or has a bad field"):
         BackendClient(fake_backend.url).generate("x")
+
+
+def test_unsupported_prompt_detail_passed_through(fake_backend: FakeBackend) -> None:
+    fake_backend.set_json("POST", "/api/generate", 422, {"detail": "Supported circuits: ..."})
+    with pytest.raises(BackendResponseError) as exc_info:
+        BackendClient(fake_backend.url).generate("x")
+    assert str(exc_info.value) == "Supported circuits: ..." and exc_info.value.status == 422
 
 
 def test_loopback_ignores_proxy_env(fake_backend: FakeBackend, monkeypatch: pytest.MonkeyPatch) -> None:

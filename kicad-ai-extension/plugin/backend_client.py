@@ -11,12 +11,13 @@ import json
 import socket
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
 EXPECTED_SERVICE = "kicad-ai-schematic-backend"
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+START_HINT = "Make sure it is running: cd backend && uvicorn app.main:app --port 8765"
 
 
 class BackendError(Exception):
@@ -40,10 +41,20 @@ class GenerateResult:
     request_id: str
     status: str
     message: str
+    title: str = ""
+    file_name: str = ""
+    schematic: str = ""
+    project: str = ""
+    components: list[str] = field(default_factory=list)  # "R1 330 (LED current limiting)"
+    notes: list[str] = field(default_factory=list)
+    erc_ran: bool = False
+    erc_passed: bool | None = None
+    erc_message: str = ""
+    warnings: list[str] = field(default_factory=list)
 
 
 class BackendClient:
-    def __init__(self, base_url: str, timeout_s: float = 30.0) -> None:
+    def __init__(self, base_url: str, timeout_s: float = 60.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
         handlers: list[urllib.request.BaseHandler] = []
@@ -69,13 +80,31 @@ class BackendClient:
             payload["context"] = context
         body = self._request("POST", "/api/generate", payload)
         try:
+            files = body.get("files") or {}
+            circuit = body.get("circuit") or {}
+            erc = body.get("erc") or {}
+            validation = body.get("validation") or {}
+            components = []
+            for item in circuit.get("components", []):
+                purpose = f" ({item['purpose']})" if item.get("purpose") else ""
+                components.append(f"{item['ref']} {item['value']}{purpose}")
             return GenerateResult(
                 request_id=str(body["request_id"]),
                 status=str(body["status"]),
                 message=str(body["message"]),
+                title=str(circuit.get("title", "")),
+                file_name=str(files.get("name", "")),
+                schematic=str(files.get("schematic", "")),
+                project=str(files.get("project", "")),
+                components=components,
+                notes=[str(n) for n in circuit.get("notes", [])],
+                erc_ran=bool(erc.get("ran", False)),
+                erc_passed=erc.get("passed"),
+                erc_message=str(erc.get("message", "")),
+                warnings=[str(w.get("message", "")) for w in validation.get("warnings", [])],
             )
-        except KeyError as exc:
-            raise BackendResponseError(f"Backend response is missing field {exc}.") from None
+        except (KeyError, TypeError) as exc:
+            raise BackendResponseError(f"Backend response is missing or has a bad field: {exc}.") from None
 
     # --- Internals ----------------------------------------------------------
 
@@ -88,23 +117,19 @@ class BackendClient:
         if data is not None:
             request.add_header("Content-Type", "application/json")
 
+        timeout_message = f"The backend at {self.base_url} did not respond in time. It may be busy or stuck; try again."
         try:
             with self._opener.open(request, timeout=timeout_s or self.timeout_s) as response:
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             raise _http_error(exc) from None
         except (TimeoutError, socket.timeout):
-            raise BackendUnavailableError(
-                f"The backend at {self.base_url} did not respond in time. It may be busy or stuck; try again."
-            ) from None
+            raise BackendUnavailableError(timeout_message) from None
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, (TimeoutError, socket.timeout)):
-                raise BackendUnavailableError(
-                    f"The backend at {self.base_url} did not respond in time. It may be busy or stuck; try again."
-                ) from None
+                raise BackendUnavailableError(timeout_message) from None
             raise BackendUnavailableError(
-                f"Cannot reach the backend at {self.base_url} ({exc.reason}). "
-                "Make sure it is running: cd backend && uvicorn app.main:app --port 8765"
+                f"Cannot reach the backend at {self.base_url} ({exc.reason}). {START_HINT}"
             ) from None
         except (OSError, ValueError) as exc:  # connection reset, bad URL, etc.
             raise BackendUnavailableError(f"Cannot reach the backend at {self.base_url} ({exc}).") from None
@@ -132,10 +157,12 @@ def _http_error(exc: urllib.error.HTTPError) -> BackendResponseError:
         problems = []
         for item in detail:
             if isinstance(item, dict):
-                field = ".".join(str(p) for p in item.get("loc", []) if p != "body")
-                problems.append(f"{field}: {item.get('msg')}" if field else str(item.get("msg")))
+                field_name = ".".join(str(p) for p in item.get("loc", []) if p != "body")
+                problems.append(f"{field_name}: {item.get('msg')}" if field_name else str(item.get("msg")))
         return BackendResponseError("The backend rejected the request: " + "; ".join(problems), exc.code)
     if isinstance(detail, str):
+        if exc.code == 422:  # the backend understood the request but cannot build this circuit
+            return BackendResponseError(detail, exc.code)
         return BackendResponseError(f"The backend returned an error ({exc.code}): {detail}", exc.code)
     if exc.code >= 500:
         return BackendResponseError(

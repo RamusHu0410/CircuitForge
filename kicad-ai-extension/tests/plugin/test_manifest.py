@@ -1,7 +1,8 @@
 """plugin.json must pass the same checks KiCad applies when loading plugins.
 
-The schema fixture is KiCad's official api/schemas/api.v1.schema.json.
-The identifier regex is copied from API_PLUGIN::IsValidIdentifier in
+Fixtures: `kicad_api.v1.schema.json` is the upstream (KiCad 11) schema;
+`kicad10_api.v1.schema.json` is the copy bundled with KiCad 10.0.7. The
+identifier regex is copied from API_PLUGIN::IsValidIdentifier in
 common/api/api_plugin.cpp.
 """
 
@@ -10,16 +11,18 @@ import re
 from pathlib import Path
 
 import jsonschema
+import pytest
 
 from conftest import PLUGIN_DIR
 
-SCHEMA = json.loads((Path(__file__).parent / "fixtures" / "kicad_api.v1.schema.json").read_text())
+FIXTURES = Path(__file__).parent / "fixtures"
 MANIFEST = json.loads((PLUGIN_DIR / "plugin.json").read_text())
 KICAD_IDENTIFIER_RE = re.compile(r"^[a-zA-Z]{2,}(\.([a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]|[a-zA-Z0-9])){2,}$")
 
 
-def test_manifest_matches_kicad_schema() -> None:
-    jsonschema.validate(MANIFEST, SCHEMA)
+@pytest.mark.parametrize("schema_file", ["kicad_api.v1.schema.json", "kicad10_api.v1.schema.json"])
+def test_manifest_matches_kicad_schema(schema_file: str) -> None:
+    jsonschema.validate(MANIFEST, json.loads((FIXTURES / schema_file).read_text()))
 
 
 def test_plugin_identifier_accepted_by_kicad() -> None:
@@ -30,10 +33,11 @@ def test_python_runtime() -> None:
     assert MANIFEST["runtime"]["type"] == "python"
 
 
-def test_single_schematic_action() -> None:
+def test_action_scopes() -> None:
     [action] = MANIFEST["actions"]
     assert action["name"] == "AI Schematic Generator"
-    assert action["scopes"] == ["schematic"]
+    # PCB Editor for KiCad 9/10 (their only plugin scope); Schematic Editor from KiCad 11.
+    assert action["scopes"] == ["pcb", "schematic"]
     assert action["show-button"] is True
 
 

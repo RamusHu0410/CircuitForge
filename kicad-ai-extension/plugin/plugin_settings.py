@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class PluginSettings:
     backend_url: str
-    request_timeout_s: float = 30.0
+    request_timeout_s: float = 90.0  # generation includes running KiCad's ERC
 
 
 def _normalize_url(url: str) -> str | None:
