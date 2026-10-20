@@ -14,68 +14,58 @@ which also gets C++ firmware.
 
 ![The CircuitForge window](docs/circuitforge-window.png)
 
-## Run it
+## Install
 
-KiCad 10 or newer must be installed (the service uses its command-line tools). Start the service first.
+In KiCad 10 or newer: **Preferences → Plugins → Enable KiCad API**, then **Tools → Plugin and Content
+Manager**, find **CircuitForge** and click **Install**. Open a project's **PCB Editor** (on KiCad 10 plugin
+buttons only show up there; KiCad 11 has them in the Schematic Editor too) and click **AI Schematic
+Generator**. The CircuitForge window opens next to KiCad; clicking again brings it to the front.
+
+Nothing else to start: the plugin carries the engine and the UI, and the window talks to the engine
+directly (no server). Building, developing and publishing: [`kicad-ai-extension/README.md`](kicad-ai-extension/README.md).
+
+## Develop
 
 ```bash
-# 1. the service
 cd kicad-ai-extension/backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
+cd ../.. && npm install && npm run build                         # dist/ is not in git; rebuild after you pull
+python3 kicad-ai-extension/scripts/package_pcm.py --vendor-dev   # once: pywebview for the plugin
+ln -s "$PWD/kicad-ai-extension/plugin" ~/Documents/KiCad/10.0/plugins/ai-schematic-generator
 ```
 
-```bash
-# 2. build the UI once, from the repo root (the service serves it)
-npm install
-npm run build
-```
-
-`dist/` is not in git, so build it again after you pull.
-
-Then open it from KiCad:
-
-1. One time setup: copy the plugin with `cp -R kicad-ai-extension/plugin ~/Documents/KiCad/10.0/plugins/ai-schematic-generator`,
-   then in KiCad go to **Preferences → Plugins** and check **Enable KiCad API**. Restart KiCad.
-2. Open your project and open the **PCB Editor**. On KiCad 10 plugin buttons only show up there (KiCad 11 has them in the
-   Schematic Editor too). The first time, KiCad takes a few seconds to set up the plugin.
-3. Click the **AI Schematic Generator** button on the top toolbar. The CircuitForge window opens next to KiCad. Clicking
-   it again brings the window to the front.
-
-The service has to be running (step 1) or the button falls back to a small dialog that tells you so. No KiCad handy?
-Open http://127.0.0.1:8765 in a browser, or run `python -m app.desktop` in `kicad-ai-extension/backend`.
+Restart KiCad after linking the plugin. No KiCad handy? `python -m app.desktop` in `kicad-ai-extension/backend` opens the
+window on its own. For hot reload in a browser, run `uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload` there
+and `npm run dev` in the repo root.
 
 Try: *"555 timer blinking a blue LED at 2 Hz on 9V"*, or *"red LED blinks when the button is pressed once, green LED
 blinks if it's pressed twice within 0.5 s"* (that one makes a Nano and the code).
 
-| UI | Service endpoint | What happens |
+| UI | Engine call (bridge name / HTTP endpoint) | What happens |
 | --- | --- | --- |
-| Prompt box | `POST /api/generate` | Rules pick the template; formulas set the values; KiCad's ERC fills in the checks |
-| preview | `POST /api/desktop/preview` | KiCad draws the exact schematic |
-| place in my schematic | `POST /api/desktop/place` | Copies the circuit so you can paste it into the schematic you have open |
-| save / open pcb | `POST /api/desktop/save` | Saves a **new** project (never overwrites) and opens it |
-| export | `POST /api/desktop/export` | Pictures (SVG, PDF, PNG), the code and the KiCad project in `~/Downloads/CircuitForge` |
-| `kicad connected` | `GET /api/desktop/info` | Is KiCad installed here, and which project is open? |
+| Prompt box | `generate` / `POST /api/generate` | Rules pick the template; formulas set the values; KiCad's ERC fills in the checks |
+| preview | `preview` / `POST /api/desktop/preview` | KiCad draws the exact schematic |
+| place in my schematic | `place` / `POST /api/desktop/place` | Copies the circuit so you can paste it into the schematic you have open |
+| save / open pcb | `save` / `POST /api/desktop/save` | Saves a **new** project (never overwrites) and opens it |
+| export | `export` / `POST /api/desktop/export` | Pictures (SVG, PDF, PNG), the code and the KiCad project in `~/Downloads/CircuitForge` |
+| `kicad connected` | `desktop_info` / `GET /api/desktop/info` | Is KiCad installed here, and which project is open? |
 
-If the service isn't running, the UI says so. The sample class (Classroom card, "sample class") works without it.
+In a browser, if the dev service isn't running, the UI says so. The sample class (Classroom card, "sample class") works without it.
 
-**Security.** The service has no login. It binds to `127.0.0.1`, answers only to `localhost` host names, and lets
+**Security.** The KiCad window has no server at all. The development service has no login. It binds to `127.0.0.1`, answers only to `localhost` host names, and lets
 only the app window (port 8765) and the dev server (port 5173) call it from a browser (set `ALLOWED_ORIGINS` in
 `kicad-ai-extension/backend/.env` to use another port). It writes files and launches KiCad, so don't expose it
 on a network.
 
-## Backend + KiCad plugin
+## Development HTTP API
 
-See [`kicad-ai-extension/README.md`](kicad-ai-extension/README.md) for full setup. On KiCad 10 the button only shows up in
-the PCB Editor. On KiCad 11 or a nightly it's in the Schematic Editor too.
+The KiCad plugin doesn't need it, but the same engine is available over HTTP for development and scripts
+(see [`kicad-ai-extension/README.md`](kicad-ai-extension/README.md)):
 
 ```bash
-cd kicad-ai-extension/backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+cd kicad-ai-extension/backend && source .venv/bin/activate
 uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
-# then copy plugin/ to ~/Documents/KiCad/10.0/plugins/ai-schematic-generator and restart KiCad
 ```
 
 Health check: curl http://127.0.0.1:8765/api/health
@@ -107,8 +97,8 @@ print('Saved to', out)
 
 ## CircuitForge window
 
-`npm run build` in the repo root builds the UI (from `frontend/`); the backend serves it, and the KiCad toolbar button
-opens it as its own app window. Describe a circuit, then place it in your schematic, save it, open the PCB, edit the
+`npm run build` in the repo root builds the UI (from `frontend/`); the plugin package bundles it, and the KiCad toolbar
+button opens it as its own app window. Describe a circuit, then place it in your schematic, save it, open the PCB, edit the
 C++ (for microcontroller circuits), or export pictures + code.
 
 **Classroom** (top left): a class about the circuit you just generated, built by the backend from that

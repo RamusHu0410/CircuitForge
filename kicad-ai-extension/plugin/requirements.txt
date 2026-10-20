@@ -1,4 +1,20 @@
 # Installed automatically by KiCad into this plugin's virtual environment
-# (KiCad runs: pip install --only-binary :all: -r requirements.txt).
-# The dialog uses Tkinter from the Python standard library; no GUI package is needed here.
+# (KiCad runs: pip install --only-binary :all: -r requirements.txt), so every package needs wheels.
+# The engine (app/) and the CircuitForge window run in this environment: no server, no FastAPI.
 kicad-python==0.8.0
+pydantic==2.14.1
+pydantic-settings==2.16.0
+
+# The window uses pywebview 6.2.1, which is bundled in vendor/ together with proxy_tools: proxy_tools has
+# no wheel, so pip can't install pywebview here (scripts/package_pcm.py does the bundling). These are
+# pywebview's own dependencies. On Linux it also needs GTK or Qt bindings, which can't be installed this
+# way; the plugin then opens its dialog instead.
+bottle==0.13.4
+typing_extensions>=4.12
+pyobjc-core==12.2.2; sys_platform == "darwin"
+pyobjc-framework-Cocoa==12.2.2; sys_platform == "darwin"
+pyobjc-framework-Quartz==12.2.2; sys_platform == "darwin"
+pyobjc-framework-WebKit==12.2.2; sys_platform == "darwin"
+pyobjc-framework-Security==12.2.2; sys_platform == "darwin"
+pyobjc-framework-UniformTypeIdentifiers==12.2.2; sys_platform == "darwin"
+pythonnet>=3.0.4,<4; sys_platform == "win32"

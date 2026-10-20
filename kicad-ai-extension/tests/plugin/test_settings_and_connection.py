@@ -3,11 +3,11 @@ from pathlib import Path
 import pytest
 
 from kicad_client.connection import KiCadContext, get_kicad_context
-from plugin_settings import DEFAULT_BACKEND_URL, load_settings
+from plugin_settings import load_settings
 
 
-def test_default_url(tmp_path: Path) -> None:
-    assert load_settings(tmp_path / "missing.json", environ={}).backend_url == DEFAULT_BACKEND_URL
+def test_default_is_built_in_engine(tmp_path: Path) -> None:
+    assert load_settings(tmp_path / "missing.json", environ={}).backend_url is None
 
 
 def test_config_file(tmp_path: Path) -> None:
@@ -24,10 +24,10 @@ def test_env_overrides_config(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("contents", ["{not json", '["list"]', '{"backend_url": "ftp://x"}', '{"backend_url": 5}'])
-def test_bad_config_falls_back_to_default(tmp_path: Path, contents: str) -> None:
+def test_bad_config_falls_back_to_built_in_engine(tmp_path: Path, contents: str) -> None:
     config = tmp_path / "config.json"
     config.write_text(contents)
-    assert load_settings(config, environ={}).backend_url == DEFAULT_BACKEND_URL
+    assert load_settings(config, environ={}).backend_url is None
 
 
 def test_kicad_not_running_is_not_fatal(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

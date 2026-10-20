@@ -1,0 +1,28 @@
+{
+  "$schema": "https://go.kicad.org/pcm/schemas/v1",
+  "name": "CircuitForge",
+  "description": "Describe a circuit in plain English and get a checked KiCad schematic, with beginner lessons that explain every part and value.",
+  "description_full": "CircuitForge is a beginner-friendly companion window for KiCad.\n\nDescribe a circuit in plain English (\"555 timer blinking a blue LED at 2 Hz on 9V\") and CircuitForge builds the schematic from circuit rules and math, checks it with KiCad's own ERC, and explains every decision along the way.\n\nIt builds LEDs, voltage dividers, RC filters, 555 blinkers, regulators, push buttons, transistor switches, Arduino Uno projects and Arduino Nano projects with generated C++ firmware.\n\nPlace the result straight into your open schematic, save it as a new project, or export pictures and code. Everything runs on your computer: no account, no API key, nothing to start first.\n\nClick the CircuitForge button in the PCB Editor toolbar (KiCad 10) or the Schematic Editor (KiCad 11+).",
+  "identifier": "com.curcuitforge.ai-schematic-generator",
+  "type": "plugin",
+  "author": {
+    "name": "TODO: your name or team name",
+    "contact": {
+      "web": "https://github.com/RamusHu0410/CurcuitForge"
+    }
+  },
+  "license": "TODO: e.g. MIT, GPL-3.0, Apache-2.0",
+  "resources": {
+    "homepage": "https://github.com/RamusHu0410/CurcuitForge"
+  },
+  "tags": ["schematic", "education", "generator", "arduino", "beginner"],
+  "versions": [
+    {
+      "version": "1.0.0",
+      "status": "stable",
+      "kicad_version": "10.0",
+      "runtime": "ipc",
+      "platforms": ["macos", "windows"]
+    }
+  ]
+}

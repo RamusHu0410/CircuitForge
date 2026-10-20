@@ -1,12 +1,14 @@
 """Plugin settings.
 
-KiCad launches the plugin with its own environment, so shell variables are
-often not visible (for example when KiCad is started from the macOS Dock).
-The backend URL is therefore resolved in this order:
+By default the plugin runs the CircuitForge engine itself (plugin/engine.py); nothing has to be
+started first. Developers can point it at a running backend instead, e.g. one started with
+`uvicorn --reload`. KiCad launches the plugin with its own environment, so shell variables are
+often not visible (for example when KiCad is started from the macOS Dock). The backend URL is
+therefore resolved in this order:
 
 1. `KICAD_AI_BACKEND_URL` environment variable
 2. `"backend_url"` in `config.json` next to `plugin.json`
-3. `DEFAULT_BACKEND_URL`
+3. None: use the built-in engine
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ from urllib.parse import urlparse
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = PLUGIN_DIR / "config.json"
-DEFAULT_BACKEND_URL = "http://127.0.0.1:8765"
 BACKEND_URL_ENV = "KICAD_AI_BACKEND_URL"
 
 logger = logging.getLogger(__name__)
@@ -31,9 +32,9 @@ INTERFACES = ("circuitforge", "dialog")
 
 @dataclass(frozen=True)
 class PluginSettings:
-    backend_url: str
+    backend_url: str | None = None  # None: run the engine in the plugin, no server
     request_timeout_s: float = 90.0  # generation includes running KiCad's ERC
-    # "circuitforge": open the CircuitForge window (served by the backend); "dialog": the built-in Tk dialog.
+    # "circuitforge": open the CircuitForge window; "dialog": the built-in Tk dialog.
     interface: str = "circuitforge"
 
 
@@ -69,4 +70,4 @@ def load_settings(config_file: Path = CONFIG_FILE, environ: dict[str, str] | Non
             return PluginSettings(backend_url=url, interface=interface)
         logger.warning("ignoring invalid backend URL from %s: %r", source, value)
 
-    return PluginSettings(backend_url=DEFAULT_BACKEND_URL, interface=interface)
+    return PluginSettings(backend_url=None, interface=interface)

@@ -3,9 +3,13 @@
 KiCad runs this script with the plugin's virtual-environment Python:
     <venv>/bin/python entrypoint.py
 
+It opens the CircuitForge window, which runs the engine itself (engine.py), so
+nothing has to be started first. If the window can't open (e.g. no GUI toolkit
+for pywebview), the built-in dialog opens instead.
+
 It can also be run by hand for troubleshooting:
-    python entrypoint.py           # open the dialog
-    python entrypoint.py --check   # print KiCad + backend status, no UI
+    python entrypoint.py           # open the window (or the dialog)
+    python entrypoint.py --check   # print KiCad + engine status, no UI
 
 The plugin runs in its own process, so an exception here cannot crash KiCad.
 Errors are still caught, logged, and printed to stderr (KiCad 10.0.1+ shows
@@ -53,11 +57,15 @@ def _build():
     from actions.generate_schematic import GenerateSchematicAction
     from backend_client import BackendClient
     from kicad_client.connection import get_kicad_context
+    from engine import LocalEngine
     from plugin_settings import load_settings
 
     settings = load_settings()
     kicad = get_kicad_context()
-    client = BackendClient(settings.backend_url, timeout_s=settings.request_timeout_s)
+    if settings.backend_url:
+        client = BackendClient(settings.backend_url, timeout_s=settings.request_timeout_s)
+    else:
+        client = LocalEngine()
     return settings, kicad, client, GenerateSchematicAction(client, kicad)
 
 
@@ -68,10 +76,15 @@ def check() -> int:
     print(f"Python:  {sys.version.split()[0]} ({sys.executable})")
     print(f"KiCad:   {kicad.describe()}")
     print(f"Output:  {action.output_dir}")
-    print(f"Backend: {settings.backend_url}")
+    if settings.backend_url:
+        print(f"Backend: {settings.backend_url}")
+    else:
+        from engine import engine_root, ui_dir
+
+        print(f"Engine:  built in ({engine_root()}), UI: {ui_dir()}")
     try:
         health = client.health()
-        print(f"         OK - {health.get('name')} {health.get('version')}")
+        print(f"         OK - {health.get('name') or health.get('service')} {health.get('version') or ''}")
     except BackendError as exc:
         print(f"         FAILED - {exc}")
         return 1
@@ -90,16 +103,32 @@ def check() -> int:
 def run() -> int:
     settings, kicad, client, action = _build()
     if settings.interface == "circuitforge":
-        from backend_client import BackendError
-
-        try:
-            result = client.open_window(kicad.as_window_context() or None)
-            logger.info("CircuitForge window %s; %s", "brought forward" if result.get("already_open") else "opened", kicad.describe())
+        error = _open_window(settings, kicad, client)
+        if error is None:
             return 0
-        except BackendError as exc:
-            # Fall back to the built-in dialog, which explains what's wrong (e.g. backend not running).
-            logger.warning("could not open the CircuitForge window (%s); showing the dialog", exc)
+        # Fall back to the built-in dialog, which still generates (and explains anything that's wrong).
+        logger.warning("could not open the CircuitForge window (%s); showing the dialog", error)
     return _run_dialog(kicad, action)
+
+
+def _open_window(settings, kicad, client) -> str | None:
+    """Open the CircuitForge window or bring it forward. Returns why it couldn't, else None."""
+    if not settings.backend_url:
+        from engine import open_window
+
+        error = open_window(kicad.as_window_context(), kicad_cli=kicad.kicad_cli_path)
+        if error is None:
+            logger.info("CircuitForge window ready; %s", kicad.describe())
+        return error
+
+    from backend_client import BackendError
+
+    try:
+        result = client.open_window(kicad.as_window_context() or None)
+    except BackendError as exc:
+        return str(exc)
+    logger.info("CircuitForge window %s; %s", "brought forward" if result.get("already_open") else "opened", kicad.describe())
+    return None
 
 
 def _run_dialog(kicad, action) -> int:

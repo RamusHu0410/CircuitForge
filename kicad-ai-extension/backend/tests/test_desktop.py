@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app import actions
 from app.ai.circuit_generator import RuleBasedGenerator
 from app.api.routes import desktop
 from app.config import Settings, get_settings
@@ -32,14 +33,14 @@ def fresh_state(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def opened(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     calls: list[Path] = []
-    monkeypatch.setattr(desktop, "open_in_schematic_editor", lambda path, cli=None: calls.append(path))
+    monkeypatch.setattr(actions, "open_in_schematic_editor", lambda path, cli=None: calls.append(path))
     return calls
 
 
 @pytest.fixture
 def copied(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls: list[str] = []
-    monkeypatch.setattr(desktop, "copy_text", calls.append)
+    monkeypatch.setattr(actions, "copy_text", calls.append)
     return calls
 
 
@@ -164,7 +165,7 @@ def test_export_writes_pictures_code_and_project(tmp_path: Path, monkeypatch: py
     import base64
 
     revealed: list[Path] = []
-    monkeypatch.setattr(desktop, "reveal_folder", lambda p: revealed.append(p))
+    monkeypatch.setattr(actions, "reveal_folder", lambda p: revealed.append(p))
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: Settings(export_dir=str(tmp_path / "exports"), erc_enabled=False)
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\0" * 16).decode()
@@ -185,7 +186,7 @@ def test_export_writes_pictures_code_and_project(tmp_path: Path, monkeypatch: py
 def test_export_rejects_non_png_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import base64
 
-    monkeypatch.setattr(desktop, "reveal_folder", lambda p: None)
+    monkeypatch.setattr(actions, "reveal_folder", lambda p: None)
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: Settings(export_dir=str(tmp_path / "exports"), erc_enabled=False, kicad_cli_path="/nonexistent")
     with TestClient(app) as c:
@@ -197,7 +198,7 @@ def test_export_rejects_non_png_image(tmp_path: Path, monkeypatch: pytest.Monkey
 
 def test_save_for_pcb_adds_an_empty_board_and_opens_the_project(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     projects: list[Path] = []
-    monkeypatch.setattr(desktop, "open_project", lambda path, cli=None: projects.append(path))
+    monkeypatch.setattr(actions, "open_project", lambda path, cli=None: projects.append(path))
     body = client.post("/api/desktop/save", json={"files": _files().model_dump(), "open_as": "pcb"}).json()
     board = Path(body["board_path"])
     assert board.suffix == ".kicad_pcb" and board.stem == Path(body["schematic_path"]).stem

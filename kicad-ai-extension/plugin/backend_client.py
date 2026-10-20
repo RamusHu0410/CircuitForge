@@ -78,33 +78,7 @@ class BackendClient:
         payload: dict[str, Any] = {"prompt": prompt}
         if context:
             payload["context"] = context
-        body = self._request("POST", "/api/generate", payload)
-        try:
-            files = body.get("files") or {}
-            circuit = body.get("circuit") or {}
-            erc = body.get("erc") or {}
-            validation = body.get("validation") or {}
-            components = []
-            for item in circuit.get("components", []):
-                purpose = f" ({item['purpose']})" if item.get("purpose") else ""
-                components.append(f"{item['ref']} {item['value']}{purpose}")
-            return GenerateResult(
-                request_id=str(body["request_id"]),
-                status=str(body["status"]),
-                message=str(body["message"]),
-                title=str(circuit.get("title", "")),
-                file_name=str(files.get("name", "")),
-                schematic=str(files.get("schematic", "")),
-                project=str(files.get("project", "")),
-                components=components,
-                notes=[str(n) for n in circuit.get("notes", [])],
-                erc_ran=bool(erc.get("ran", False)),
-                erc_passed=erc.get("passed"),
-                erc_message=str(erc.get("message", "")),
-                warnings=[str(w.get("message", "")) for w in validation.get("warnings", [])],
-            )
-        except (KeyError, TypeError) as exc:
-            raise BackendResponseError(f"Backend response is missing or has a bad field: {exc}.") from None
+        return result_from_body(self._request("POST", "/api/generate", payload))
 
     def open_window(self, context: dict[str, Any] | None = None) -> dict[str, Any]:
         """Ask the backend to open (or bring forward) the CircuitForge window."""
@@ -141,6 +115,36 @@ class BackendClient:
             raise BackendUnavailableError(f"Cannot reach the backend at {self.base_url} ({exc}).") from None
 
         return _parse_json_object(raw)
+
+
+def result_from_body(body: dict[str, Any]) -> GenerateResult:
+    """A /api/generate response (from the backend, or the engine run in-process) as a GenerateResult."""
+    try:
+        files = body.get("files") or {}
+        circuit = body.get("circuit") or {}
+        erc = body.get("erc") or {}
+        validation = body.get("validation") or {}
+        components = []
+        for item in circuit.get("components", []):
+            purpose = f" ({item['purpose']})" if item.get("purpose") else ""
+            components.append(f"{item['ref']} {item['value']}{purpose}")
+        return GenerateResult(
+            request_id=str(body["request_id"]),
+            status=str(body["status"]),
+            message=str(body["message"]),
+            title=str(circuit.get("title", "")),
+            file_name=str(files.get("name", "")),
+            schematic=str(files.get("schematic", "")),
+            project=str(files.get("project", "")),
+            components=components,
+            notes=[str(n) for n in circuit.get("notes", [])],
+            erc_ran=bool(erc.get("ran", False)),
+            erc_passed=erc.get("passed"),
+            erc_message=str(erc.get("message", "")),
+            warnings=[str(w.get("message", "")) for w in validation.get("warnings", [])],
+        )
+    except (KeyError, TypeError) as exc:
+        raise BackendResponseError(f"Backend response is missing or has a bad field: {exc}.") from None
 
 
 def _parse_json_object(raw: bytes) -> dict[str, Any]:

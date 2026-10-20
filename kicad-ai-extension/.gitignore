@@ -18,3 +18,8 @@ __pycache__/
 fp-info-cache
 *-backups/
 ai_generated/
+
+# pywebview bundled for a symlinked dev install (scripts/package_pcm.py --vendor-dev)
+plugin/vendor/
+# PCM package builds
+build/

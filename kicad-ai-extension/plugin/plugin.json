@@ -2,10 +2,10 @@
   "$schema": "https://go.kicad.org/api/schemas/v1",
   "identifier": "com.curcuitforge.ai-schematic-generator",
   "name": "AI Schematic Generator",
-  "description": "Describe a circuit in plain language and generate a KiCad schematic. Requires the local backend.",
+  "description": "Describe a circuit in plain language and get a checked KiCad schematic, with lessons that explain every part.",
   "runtime": {
     "type": "python",
-    "min_version": "3.9"
+    "min_version": "3.10"
   },
   "actions": [
     {

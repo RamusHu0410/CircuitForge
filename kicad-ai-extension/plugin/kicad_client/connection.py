@@ -3,7 +3,8 @@
 KiCad sets KICAD_API_SOCKET and KICAD_API_TOKEN when it launches the plugin;
 `kipy.KiCad()` reads them automatically. The plugin only *reads* from KiCad:
 the version, the open project's folder (where generated files are saved),
-and the path of the Schematic Editor binary (to open the result). It never
+and the paths of the Schematic Editor (to open the result) and kicad-cli
+(for ERC and previews). It never
 modifies an open document.
 
 A failed connection is never fatal: the dialog still opens and the backend can
@@ -25,6 +26,7 @@ class KiCadContext:
     project_name: str | None = None
     project_dir: str | None = None
     eeschema_path: str | None = None
+    kicad_cli_path: str | None = None
     error: str | None = None
 
     def as_request_context(self) -> dict[str, str]:
@@ -77,11 +79,8 @@ def get_kicad_context(timeout_ms: int = 2000) -> KiCadContext:
             project_dir = documents[0].project.path or None
             break
 
-    eeschema_path = None
-    try:
-        eeschema_path = kicad.get_kicad_binary_path("eeschema") or None
-    except Exception as exc:
-        logger.info("could not get eeschema path: %s", exc)
+    eeschema_path = _binary_path(kicad, "eeschema")
+    kicad_cli_path = _binary_path(kicad, "kicad-cli")
 
     return KiCadContext(
         connected=True,
@@ -89,4 +88,13 @@ def get_kicad_context(timeout_ms: int = 2000) -> KiCadContext:
         project_name=project_name,
         project_dir=project_dir,
         eeschema_path=eeschema_path,
+        kicad_cli_path=kicad_cli_path,
     )
+
+
+def _binary_path(kicad, name: str) -> str | None:
+    try:
+        return kicad.get_kicad_binary_path(name) or None
+    except Exception as exc:
+        logger.info("could not get %s path: %s", name, exc)
+        return None

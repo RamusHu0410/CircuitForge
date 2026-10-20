@@ -6,8 +6,13 @@ Check (ERC), and saves it as a new project next to yours. It never touches
 your open design.
 
 ```
-KiCad plugin (dialog) ──HTTP──▶ local backend ──▶ circuit spec ──▶ validator ──▶ .kicad_sch ──▶ kicad-cli ERC
+KiCad button ──▶ CircuitForge window ──JS bridge──▶ engine (same process) ──▶ circuit spec ──▶ validator ──▶ .kicad_sch ──▶ kicad-cli ERC
 ```
+
+Users install it from KiCad's **Plugin and Content Manager** and click the button. There is no server
+to start: the plugin ships the engine (`backend/app`) and the built UI, and the window calls the engine
+directly through pywebview's JavaScript bridge. The FastAPI backend is still there for development
+(`npm run dev`, the browser, the API docs).
 
 ## What it can generate
 
@@ -51,57 +56,70 @@ every sample, checks it with KiCad, and writes PNGs to `/tmp/kicad_preview`.
 | 10.0.x (tested on 10.0.7) | **PCB Editor** toolbar. KiCad 9/10 only support IPC plugins there. |
 | 11.0+ / 10.99 nightlies | PCB Editor and Schematic Editor |
 
-## 1. Start the backend
+## 1. Install (users)
 
-Requires Python 3.11+.
+In KiCad: **Preferences → Plugins → Enable KiCad API**, then **Tools → Plugin and Content Manager**, find
+**CircuitForge** and click **Install**. Open a project's PCB Editor; the first time, KiCad sets up the
+plugin's Python environment (a few seconds). Then click the **AI Schematic Generator** button.
+
+Before it's listed (or to test a build): **Plugin and Content Manager → Install from File...** and pick the
+zip from `scripts/package_pcm.py` (see [Publish and update](#publish-and-update)).
+
+## 2. Develop
+
+Requires Python 3.11+ for the backend (the plugin itself needs 3.10+).
 
 ```bash
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
+cd ../.. && npm install && npm run build          # the UI the window shows (dist/)
+python3 kicad-ai-extension/scripts/package_pcm.py --vendor-dev   # pywebview for the plugin (plugin/vendor/)
 ```
 
-Check it at http://127.0.0.1:8765/api/health (API docs: http://127.0.0.1:8765/docs).
+**Plugin in KiCad, straight from the repo:** enable the KiCad API (above), quit KiCad, and link the plugin
+folder so code changes apply without copying:
 
-ERC uses `kicad-cli`, which is found automatically on `PATH` or in the
-standard KiCad install location. Set `KICAD_CLI_PATH` in `backend/.env` if
-yours is elsewhere. Without it, schematics are still generated, and the
-response says ERC was skipped.
+```bash
+mkdir -p ~/Documents/KiCad/10.0/plugins
+ln -s "$PWD/kicad-ai-extension/plugin" ~/Documents/KiCad/10.0/plugins/ai-schematic-generator
+```
 
-The backend binds to `127.0.0.1` only and has no authentication. Don't expose
-it on a network interface.
+Plugin folders on other systems: Windows `C:\Users\<you>\Documents\KiCad\10.0\plugins`, Linux
+`~/.local/share/KiCad/10.0/plugins`. The linked plugin finds the engine in `backend/app` and the UI in
+`dist/`. Rebuild the UI (`npm run build`) after frontend changes.
 
-## 2. Install the plugin (KiCad 10, macOS)
+**Window without KiCad:** `cd backend && python -m app.desktop` (engine in-process, no server).
 
-1. **Quit KiCad.**
-2. **Enable the KiCad API:** in KiCad, open **Preferences → Plugins** and check **Enable KiCad API**. KiCad 10's bundled Python works as the interpreter; the plugin fixes its Tkinter paths itself.
-3. **Copy the plugin:**
-   ```bash
-   mkdir -p ~/Documents/KiCad/10.0/plugins
-   cp -R plugin ~/Documents/KiCad/10.0/plugins/ai-schematic-generator
-   ```
-   Plugin folders on other systems: Windows `C:\Users\<you>\Documents\KiCad\10.0\plugins`, Linux `~/.local/share/KiCad/10.0/plugins`.
-4. **Open a project's PCB Editor.** The first time, KiCad builds a Python environment for the plugin and installs `kicad-python`, which takes a few seconds. Then the **AI Schematic Generator** button appears on the toolbar.
+**Browser / hot reload:** `uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload` in `backend/`, then
+`npm run dev` in the repo root. API docs at http://127.0.0.1:8765/docs. To make the KiCad button use this
+server instead of the built-in engine, put `{"backend_url": "http://127.0.0.1:8765"}` in the plugin's
+`config.json` (or set `KICAD_AI_BACKEND_URL`).
 
-To use a different backend URL, copy `config.example.json` to `config.json`
-in the installed plugin folder and edit it, or set `KICAD_AI_BACKEND_URL`.
+ERC uses `kicad-cli`. The plugin passes the path of the KiCad that launched it; otherwise it's found on
+`PATH` or in the standard install location. Set `KICAD_CLI_PATH` if yours is elsewhere. Without it,
+schematics are still generated and the result says ERC was skipped.
+
+The HTTP backend binds to `127.0.0.1` only and has no authentication. Don't expose it on a network interface.
 
 ## CircuitForge window
 
-The toolbar button now opens the **CircuitForge window**, a native app window (pywebview, using the
-system's WebKit/WebView2) showing the UI from the repo root, served by this backend. Build the UI once
-with `npm install && npm run build` in the repo root; the backend serves `dist/` at `/`.
+The toolbar button opens the **CircuitForge window**, a native app window (pywebview, using the system's
+WebKit/WebView2). The plugin starts it as its own process (`python -m app.desktop --from-kicad`), so it
+stays open after the click. pywebview shows the built UI and passes the page's calls straight to Python
+(`backend/app/bridge.py`); the page loads `index.html#bridge`, which tells `frontend/api/client.ts` to use
+the bridge instead of `fetch`.
 
-- The plugin sends the KiCad version and open project to `POST /api/desktop/open`; clicking again brings the window forward.
-- **Place in my schematic:** `POST /api/desktop/place` copies the circuit to the clipboard in KiCad's own clipboard format.
-  In the Schematic Editor press Cmd/Ctrl+V and click to drop it. The backend never writes to your files.
-- **Save as a new project:** `POST /api/desktop/save` writes `<your project>/ai_generated/<name>/` and opens it.
-- **Preview:** `POST /api/desktop/preview` returns KiCad's own SVG rendering (`kicad-cli sch export svg`).
-- To keep the old Tkinter dialog, set `"interface": "dialog"` in the plugin's `config.json`.
-  The dialog is also the fallback when the backend isn't running.
-- Run the window without KiCad: `cd backend && python -m app.desktop`.
+- One window per user: it holds a lock in the CircuitForge state folder (`~/Library/Application Support/CircuitForge`,
+  `%LOCALAPPDATA%\CircuitForge`, `~/.local/state/CircuitForge`). Each click writes the KiCad version and
+  open project to `session.json` there; the open window comes forward and saves next to that project.
+- **Place in my schematic** copies the circuit to the clipboard in KiCad's own format. In the Schematic
+  Editor press Cmd/Ctrl+V and click to drop it. Nothing writes to your files.
+- **Save as a new project** writes `<your project>/ai_generated/<name>/` and opens it.
+- **Preview** is KiCad's own SVG rendering (`kicad-cli sch export svg`).
+- To keep the old Tkinter dialog, set `"interface": "dialog"` in the plugin's `config.json`. The dialog is
+  also the fallback when the window can't open (for example on Linux without GTK/Qt bindings); it runs the
+  engine in the plugin too.
 
 ## 3. Use it
 
@@ -144,10 +162,10 @@ machine running the backend, so keep the backend on `127.0.0.1`.
 ## Tests
 
 ```bash
-# Backend: 144 tests. Includes real KiCad ERC + netlist checks when kicad-cli is installed.
+# Backend: includes real KiCad ERC + netlist checks when kicad-cli is installed.
 cd backend && source .venv/bin/activate && pytest
 
-# Plugin: 53 tests (needs a Python with Tkinter)
+# Plugin (needs a Python with Tkinter; run --vendor-dev first, see "Develop")
 cd tests/plugin
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/pytest
@@ -156,14 +174,24 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ## Layout
 
 ```
-plugin/                      KiCad IPC plugin (copied into KiCad's plugins folder)
+plugin/                      KiCad IPC plugin (becomes plugins/ in the PCM package)
   plugin.json                  manifest: scopes "pcb" (KiCad 10) and "schematic" (KiCad 11)
   entrypoint.py                launched by KiCad; `--check` prints diagnostics
-  actions/generate_schematic.py  prompt -> backend -> files on disk
+  engine.py                    finds the engine + UI, opens the window, runs the engine for the dialog
+  requirements.txt             installed by KiCad (wheels only); pywebview itself is bundled in vendor/
+  actions/generate_schematic.py  prompt -> engine -> files on disk (the dialog)
   ui/prompt_dialog.py          Tkinter dialog
   kicad_client/                read-only KiCad IPC connection; opening results
   output_writer.py             safe, never-overwrite file writing
+pcm/metadata.json            Plugin and Content Manager metadata; the version history lives here
+pcm/icon.png                 64x64 package icon
+scripts/package_pcm.py       builds the PCM zip + the metadata for KiCad's addons repo
 backend/app/
+  desktop.py                   the CircuitForge window (engine in-process, or UI from a server with --url)
+  bridge.py                    what the page can call through pywebview (no HTTP)
+  actions.py                   preview / save / place / export, shared by the bridge and the HTTP routes
+  instance.py                  one window per user; KiCad clicks hand over the open project
+  main.py, api/                FastAPI app for development (not shipped in the plugin)
   ai/circuit_generator.py      prompt -> CircuitSpec (rule-based)
   core/component_registry.py   allowed parts -> KiCad symbols/footprints
   core/circuit_validator.py    resolves and checks every pin against the real symbol
@@ -184,8 +212,10 @@ examples/kicad10_test_project/ test project used for KiCad 10 testing
   - For a detailed trace, launch the PCB Editor with `KICAD_ENABLE_WXTRACE=1 WXTRACE=KICAD_API`.
 - **Clicking does nothing.**
   - Look at the warning messages in the status bar.
-  - The plugin logs to `kicad-ai-schematic-generator.log` in the system temp folder.
-- **"Backend not available".** Start the backend (section 1).
+  - The plugin logs to `kicad-ai-schematic-generator.log` in the system temp folder; the window logs to
+    `window.log` in the CircuitForge state folder.
+- **The dialog opens instead of the window.** The window couldn't start; the reason is in the plugin log
+  and `window.log`. On Linux, pywebview needs GTK or Qt bindings in the plugin's Python environment.
 - **"Can't generate that yet".** The prompt didn't match a supported circuit; see the table above.
 - **ERC "not run".** The backend couldn't find `kicad-cli`; set `KICAD_CLI_PATH`.
 - **Diagnostics:**
@@ -193,6 +223,36 @@ examples/kicad10_test_project/ test project used for KiCad 10 testing
   ~/Library/Caches/KiCad/10.0/python-environments/com.curcuitforge.ai-schematic-generator/bin/python \
     ~/Documents/KiCad/10.0/plugins/ai-schematic-generator/entrypoint.py --check
   ```
+
+## Publish and update
+
+KiCad's Plugin and Content Manager lists packages from
+[gitlab.com/kicad/addons/metadata](https://gitlab.com/kicad/addons/metadata). Each release is a zip you
+host (a GitHub release asset works) plus an entry in that repo.
+
+**First release**
+
+1. Fill in `author.name` and `license` in `pcm/metadata.json`. The identifier
+   (`com.curcuitforge.ai-schematic-generator`, same as `plugin/plugin.json`) can't change after release.
+2. `python3 kicad-ai-extension/scripts/package_pcm.py` builds the UI, bundles pywebview and writes
+   `build/pcm/<identifier>-<version>.zip` and `build/pcm/metadata.json`.
+3. Test it: **Plugin and Content Manager → Install from File...** (remove the symlinked dev copy first).
+4. Commit `pcm/metadata.json` (the script recorded the zip's URL, sha256 and sizes) and tag `v<version>`.
+   Create a GitHub release for the tag and upload the zip; its URL must match `download_url`.
+5. Fork the addons repo, add `packages/<identifier>/metadata.json` (copy of `build/pcm/metadata.json`) and
+   `packages/<identifier>/icon.png`, and open a merge request. KiCad maintainers review it; once merged it
+   shows up for everyone.
+
+**Updates**
+
+1. Add a new entry at the end of `"versions"` in `pcm/metadata.json` with a higher `version`
+   (keep the old entries).
+2. Run the script, test the zip, commit, tag, and upload the zip to a new GitHub release.
+3. Open a merge request replacing `packages/<identifier>/metadata.json` with the new `build/pcm/metadata.json`.
+   Once merged, users see **Update** in the Plugin and Content Manager.
+
+Never re-upload a different zip under a released version: the sha256 in the addons repo would no longer
+match and KiCad refuses to install it. Bump the version instead.
 
 ## Microcontroller projects (complex prompts)
 
