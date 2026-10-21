@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from app.schemas.system import SystemPlan
 
 from app.schemas.lesson import Lesson
+from app.schemas.scene import Scene
 
 MAX_PROMPT_LENGTH = 4000
 
@@ -224,3 +225,4 @@ class GenerateResponse(BaseModel):
     files: SchematicFiles
     firmware: Firmware | None = None
     lesson: Lesson | None = Field(default=None, description="Classroom lesson about this exact circuit")
+    scene: Scene | None = Field(default=None, description="The schematic as drawing data with nets, for the interactive 2D/3D views")

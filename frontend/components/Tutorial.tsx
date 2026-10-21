@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import type { Project } from "../types";
 import type { ClassroomState } from "./classroom/Classroom";
 import { quizScore } from "./classroom/Classroom";
-import { ChevronRight } from "lucide-react";
+import { Atom, ChevronRight, Dumbbell } from "lucide-react";
 
 export const CHAPTERS = [
   { id: "how", title: "how it works" },
@@ -47,8 +47,13 @@ export function TutorialCard({ progress, onOpen }: { progress: number[]; onOpen:
 
 /* ---------- top-left box: the Classroom for the circuit you just built ---------- */
 
-export function ClassroomCard({ project, state, onOpen, onSample }: { project: Project | null; state: ClassroomState; onOpen: (index: number) => void; onSample: () => void }) {
+export function ClassroomCard({ project, state, onOpen, onExplore, onSample, onPractice }: { project: Project | null; state: ClassroomState; onOpen: (index: number) => void; onExplore: () => void; onSample: () => void; onPractice: () => void }) {
   const lesson = project?.lesson;
+  const practice = (
+    <button className="practice-link" onClick={onPractice}>
+      <Dumbbell size={13} /> practice: build &amp; draw circuits
+    </button>
+  );
   if (!lesson) {
     return (
       <div className="tutorial-box classroom-box">
@@ -57,6 +62,7 @@ export function ClassroomCard({ project, state, onOpen, onSample }: { project: P
         <button className="continue" onClick={onSample}>
           sample class: push-button LED <ChevronRight size={14} />
         </button>
+        {practice}
       </div>
     );
   }
@@ -71,6 +77,16 @@ export function ClassroomCard({ project, state, onOpen, onSample }: { project: P
         classroom <span className="dim">{Math.round(progress * 100)}%</span>
       </div>
       <div className="cr-card-title">{lesson.title}</div>
+      {project?.scene && (
+        <motion.button className="explore-btn" whileTap={{ scale: 0.97 }} onClick={onExplore}>
+          <Atom size={15} />
+          <span>
+            <b>See it work</b>
+            <small>2D · 3D · follow the electrons</small>
+          </span>
+          <ChevronRight size={14} />
+        </motion.button>
+      )}
       <ol className="chapters">
         {sections.slice(0, 6).map((s, i) => (
           <motion.li key={s.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25, delay: 0.1 + i * 0.05 }}>
@@ -88,6 +104,7 @@ export function ClassroomCard({ project, state, onOpen, onSample }: { project: P
         {score.total > 0 && <span className="dim"> · quiz {score.right}/{score.total}</span>}
         <ChevronRight size={14} />
       </motion.button>
+      {practice}
       <button className="expand-tab" title="open classroom" aria-label="Open classroom" onClick={() => onOpen(nextIndex)}>
         <ChevronRight size={16} />
       </button>

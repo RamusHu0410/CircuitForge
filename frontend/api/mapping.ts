@@ -120,5 +120,16 @@ export function toProject(res: GenerateResponse): Project {
     { id: "c-nets", label: `${circuit.nets.length} nets wired`, status: "pass", stepId: "wire" },
   ];
 
-  return { name: circuit.title, request: res.prompt, steps, checks, files: res.files, firmware: res.firmware ?? undefined, lesson: res.lesson ?? undefined, generator: res.generator };
+  return {
+    name: circuit.title,
+    request: res.prompt,
+    steps,
+    checks,
+    files: res.files,
+    firmware: res.firmware ?? undefined,
+    lesson: res.lesson ?? undefined,
+    generator: res.generator,
+    scene: res.scene ?? undefined,
+    circuit: { components: circuit.components, nets: circuit.nets },
+  };
 }

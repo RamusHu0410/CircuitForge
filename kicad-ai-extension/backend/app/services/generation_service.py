@@ -15,6 +15,7 @@ from app.core.circuit_validator import ResolvedCircuit, validate_circuit
 from app.core.erc import find_kicad_cli, run_erc
 from app.core.launcher import open_in_schematic_editor
 from app.core.output_writer import OutputError, WrittenFiles, resolve_output_dir, write_project, write_sketch
+from app.core.scene import build_scene
 from app.core.schematic_renderer import render_schematic
 from app.schemas.circuit import (
     CircuitSpec,
@@ -99,6 +100,11 @@ class GenerationService:
         )
         firmware = self._firmware(request.prompt, spec, built.files.name)
         lesson = build_lesson(spec, built.resolved.report, built.erc, built.files, firmware)
+        try:
+            scene = build_scene(built.files.schematic, built.resolved)
+        except Exception:  # the views are a bonus; never fail a generation over them
+            logger.exception("could not build the scene for '%s'", spec.title)
+            scene = None
         refs = ", ".join(f"{c.ref} {c.value}" for c in spec.components)
         return GenerateResponse(
             request_id=request_id,
@@ -112,6 +118,7 @@ class GenerationService:
             files=built.files,
             firmware=firmware,
             lesson=lesson,
+            scene=scene,
         )
 
     @staticmethod

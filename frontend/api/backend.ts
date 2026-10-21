@@ -52,6 +52,7 @@ export interface GenerateResponse {
   files: SchematicFiles;
   firmware: import("../types").Firmware | null;
   lesson: Lesson | null;
+  scene: import("../lab/scene").Scene | null;
 }
 
 export interface DesktopInfo {

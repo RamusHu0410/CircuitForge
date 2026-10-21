@@ -105,3 +105,25 @@ C++ (for microcontroller circuits), or export pictures + code.
 circuit's own values (`kicad-ai-extension/backend/app/ai/lessons.py`): what it does, each part, its math
 (LaTeX + "what if" sliders), the code, how to draw it in KiCad, how it was checked, and quizzes, at three
 explanation depths. Each step's "explain" in the transcript opens the matching section.
+
+The class opens on **See it work** (`frontend/components/lab/`), an interactive lab for the exact circuit:
+
+- The real KiCad schematic in 2D (pan, zoom) next to a 3D model of the board you can orbit freely. Parts
+  stand with their legs on the schematic's pin positions, so the two views match one to one.
+- A circuit simulator (`frontend/lab/sim.ts`: nodal analysis, Newton for LEDs/diodes/transistors, time steps
+  for capacitors, a behavioural 555, regulators and microcontroller pins) drives everything: electrons (or
+  conventional current) move along the actual wires at speeds set by the real current, LEDs glow by their
+  current, wires can be coloured by voltage.
+- Click anything (a part, one pin, a wire, a junction dot, a label, a power symbol, even the arrows on an
+  LED) and it explains itself with live numbers, an analogy, an animated "how it works" cut-away, and controls
+  to experiment: hold a button, turn a knob, try another resistor value or LED colour, switch Arduino pins,
+  change an input signal.
+- **Follow an electron** walks the loop the current actually takes, step by step, with the energy each part
+  takes (`frontend/lab/tour.ts`).
+
+**Practice** (home screen, or the left panel): build a real circuit from a schematic, or draw the schematic of
+a circuit you can turn around in 3D. The checker (`frontend/lab/check.ts`) compares connections, not drawing
+style, names mistakes ("D1 is backwards"), and a correct build is switched on in the 3D lab.
+
+The schematic's drawing data (`scene` in `/api/generate`) comes from `backend/app/core/scene.py`, which reads
+the generated `.kicad_sch` back and puts a net on every wire, pin, junction and label.

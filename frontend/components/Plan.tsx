@@ -82,7 +82,7 @@ export const EXAMPLE_PROMPTS = [
 ];
 
 /** What the middle shows before the first prompt: nothing generated, just what you can ask for. */
-function EmptyState({ onPick }: { onPick: (text: string) => void }) {
+function EmptyState({ onPick, onPractice }: { onPick: (text: string) => void; onPractice: () => void }) {
   return (
     <motion.div className="empty-state" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.15 }}>
       <Logo size={44} idle />
@@ -97,6 +97,20 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         ))}
       </div>
       <p className="dim small">Click one to put it in the box below, then press Enter.</p>
+      <div className="practice-cta">
+        <div>
+          <h3>Practice: learn by doing</h3>
+          <p className="dim">Build a real circuit from a schematic, or draw the schematic of a circuit you can turn around in 3D. It checks your work and switches it on when it's right.</p>
+        </div>
+        <div className="practice-cta-btns">
+          <button className="btn" onClick={onPractice}>
+            schematic → circuit
+          </button>
+          <button className="btn" onClick={onPractice}>
+            circuit → schematic
+          </button>
+        </div>
+      </div>
     </motion.div>
   );
 }
@@ -357,6 +371,7 @@ interface PlanProps extends Omit<TranscriptProps, "project"> {
   showWelcome: boolean;
   onCloseWelcome: () => void;
   onPickExample: (text: string) => void;
+  onPractice: () => void;
 }
 
 export function Plan(props: PlanProps) {
@@ -372,7 +387,7 @@ export function Plan(props: PlanProps) {
         {showWelcome && <Welcome key="welcome" project={project} kicad={kicad} level={level} thinking={messages.some((m) => m.state === "sending")} onClose={onCloseWelcome} />}
       </AnimatePresence>
 
-      {project ? <ProjectTranscript {...props} project={project} /> : !messages.length && <EmptyState onPick={onPickExample} />}
+      {project ? <ProjectTranscript {...props} project={project} /> : !messages.length && <EmptyState onPick={onPickExample} onPractice={props.onPractice} />}
 
       <AnimatePresence initial={false}>
         {messages.map((m) => (

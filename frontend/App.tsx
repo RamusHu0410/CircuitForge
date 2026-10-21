@@ -12,6 +12,7 @@ import { CodeEditor } from "./components/CodeEditor";
 import { Logo } from "./components/Logo";
 import { ClassroomCard } from "./components/Tutorial";
 import { Classroom, type ClassroomState } from "./components/classroom/Classroom";
+import { Practice } from "./components/practice/Practice";
 import { TutorialOverlay, chapterProgress, type TutorialProgress } from "./components/tutorial/TutorialShell";
 import { Plan, type ActionEntry, type KiCadInfo } from "./components/Plan";
 import { ChecksPanel, Composer, Modal, PartsMini, PreviewMenu, UtilityPanel, type PreviewKind } from "./components/Panels";
@@ -50,6 +51,8 @@ export default function App() {
   const [tutorial, setTutorial] = useState<number | null>(null); // the sample class (built-in example)
   const [classroom, setClassroom] = useState<number | null>(null); // section index in the current circuit's class
   const [classState, setClassState] = useState<ClassroomState>({ visited: [], answers: {}, done: {} });
+  const [classLab, setClassLab] = useState(true); // the classroom opens on the interactive lab
+  const [practice, setPractice] = useState(false);
   const [tutProgress, setTutProgress] = useState<TutorialProgress>({ howDone: false, mathTouched: false, reviewed: [] });
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<PreviewKind | null>(null);
@@ -216,7 +219,10 @@ export default function App() {
 
   const openSection = (id: string) => {
     const i = project?.lesson?.sections.findIndex((s) => s.id === id) ?? -1;
-    if (i >= 0) setClassroom(i);
+    if (i >= 0) {
+      setClassLab(false);
+      setClassroom(i);
+    }
   };
 
   const openCode = () => {
@@ -276,7 +282,20 @@ export default function App() {
             <Logo size={26} idle sparkOnHover />
             <span className="brand-name">CircuitForge</span>
           </div>
-          <ClassroomCard project={project} state={classState} onOpen={setClassroom} onSample={() => setTutorial(Math.max(0, chapterProgress(tutProgress, checklist).findIndex((f) => f < 1)))} />
+          <ClassroomCard
+            project={project}
+            state={classState}
+            onOpen={(i) => {
+              setClassLab(false);
+              setClassroom(i);
+            }}
+            onExplore={() => {
+              setClassLab(true);
+              setClassroom(0);
+            }}
+            onSample={() => setTutorial(Math.max(0, chapterProgress(tutProgress, checklist).findIndex((f) => f < 1)))}
+            onPractice={() => setPractice(true)}
+          />
           <UtilityPanel activity={activity} onImport={() => fileRef.current?.click()} onExport={exportProject} onSettings={() => setSettingsOpen(true)} />
         </aside>
 
@@ -287,6 +306,7 @@ export default function App() {
             showWelcome={!settings.welcomeDismissed}
             onCloseWelcome={() => setSettings((s) => ({ ...s, welcomeDismissed: true }))}
             onPickExample={(text) => setPrefill((p) => ({ text, seq: p.seq + 1 }))}
+            onPractice={() => setPractice(true)}
             onOpenPcb={openPcb}
             messages={messages}
             actions={actions}
@@ -341,8 +361,12 @@ export default function App() {
             onIndex={setClassroom}
             onState={(patch) => setClassState((c) => ({ ...c, ...patch }))}
             onClose={() => setClassroom(null)}
+            lab={classLab}
+            onLab={setClassLab}
           />
         )}
+
+        {practice && <Practice generate={requestPlan} level={settings.level} onClose={() => setPractice(false)} />}
 
         {tutorial !== null && (
           <TutorialOverlay

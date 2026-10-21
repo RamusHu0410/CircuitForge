@@ -1,0 +1,106 @@
+/* Practice: build a circuit from a schematic, or draw the schematic of a circuit. */
+
+.practice { position: fixed; inset: 0; z-index: 45; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--bg); color: var(--text); font-size: 13.5px; }
+.pr-head { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
+.pr-title { flex: 1; }
+.pr-title .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--brand); font-weight: 700; }
+.pr-title h1 { margin: 2px 0 0; font-size: 22px; letter-spacing: -0.02em; }
+.pr-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+
+.pr-pick { overflow: auto; padding: 24px; display: flex; flex-direction: column; gap: 22px; max-width: 1100px; width: 100%; margin: 0 auto; }
+.pr-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.pr-mode { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 2px 12px; padding: 16px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg); text-align: left; }
+.pr-mode-icon { grid-row: span 2; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--hover); color: var(--dim); }
+.pr-mode b { font-size: 15px; }
+.pr-mode span:last-child { color: var(--dim); }
+.pr-mode.on { border-color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 1px var(--brand); }
+.pr-mode.on .pr-mode-icon { background: var(--brand); color: #fff; }
+.pr-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.pr-ex { display: flex; flex-direction: column; gap: 4px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); text-align: left; }
+.pr-ex:hover { border-color: var(--brand); }
+.pr-ex b { display: flex; align-items: center; gap: 6px; font-size: 14.5px; }
+.pr-ex.done { border-color: color-mix(in srgb, var(--ok) 45%, var(--bg)); }
+.pr-ex.done b svg { color: var(--ok); }
+.pr-stars { display: flex; gap: 2px; color: #e0a020; }
+
+.pr-work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); min-height: 0; }
+.pr-pane { display: flex; flex-direction: column; min-height: 0; padding: 14px 18px; gap: 10px; }
+.pr-pane + .pr-pane { border-left: 1px solid var(--line); overflow: auto; }
+.pr-pane h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
+.pr-loading { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dim); }
+.pr-loading.bad { color: var(--bad); }
+.spin { animation: pr-spin 1s linear infinite; }
+@keyframes pr-spin { to { transform: rotate(360deg); } }
+
+.target { display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.target-view { position: relative; min-height: 280px; display: grid; }
+.target-info { padding: 8px 12px; border-top: 1px solid var(--line); min-height: 38px; font-size: 12.5px; }
+
+.builder { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 10px; }
+.tray { display: flex; flex-direction: column; gap: 5px; }
+.tray-title { font-size: 11.5px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.tray-item { padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); text-align: left; font-size: 12.5px; }
+.tray-item:hover:not(:disabled) { border-color: var(--brand); background: var(--brand-soft); }
+.tray-item.used { opacity: 0.45; text-decoration: line-through; cursor: default; }
+.tray-item.port { border-style: dashed; }
+.canvas-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.build-canvas { width: 100%; aspect-ratio: 112 / 72; border-radius: 10px; border: 1px solid var(--line-strong); touch-action: none; user-select: none; font-family: var(--mono); }
+.builder.physical .board:first-of-type { fill: #f4efe2; }
+.builder.schematic .board:first-of-type { fill: var(--kc-bg); }
+.builder .hole { fill: #d9cfb6; }
+.builder.schematic .hole { fill: transparent; }
+.bpart { cursor: grab; }
+.bsym { color: var(--kc-sym); stroke: var(--kc-sym); stroke-linecap: round; stroke-linejoin: round; }
+.bpins line { stroke: var(--kc-sym); }
+.bpins text { pointer-events: none; }
+.bpins .l2d-pinname { fill: var(--kc-sym); }
+.bpins .l2d-pinnum { fill: #a12; opacity: 0.75; }
+.bhit { fill: transparent; }
+.bpart.sel .bsym { stroke: var(--brand); color: var(--brand); }
+.bpart.sel .bphys { filter: drop-shadow(0 0 0.8px var(--brand)) drop-shadow(0 0 0.8px var(--brand)); }
+.bref { font-size: 1.6px; fill: var(--kc-text); pointer-events: none; }
+.bval { fill: var(--dim); }
+.bpin { fill: color-mix(in srgb, var(--brand) 18%, transparent); stroke: var(--brand); stroke-width: 0.18; cursor: crosshair; }
+.bpin:hover { fill: var(--brand); }
+.bpin.pending { fill: var(--brand); stroke-width: 0.5; }
+.bwire-line { fill: none; stroke: var(--kc-wire); stroke-width: 0.35; stroke-linecap: round; }
+.builder.physical .bwire-line { stroke-width: 0.8; }
+.bwire-hit { fill: none; stroke: transparent; stroke-width: 2.2; cursor: pointer; }
+.bwire.sel .bwire-line { stroke: var(--brand) !important; stroke-dasharray: 1 0.6; }
+.rubber { stroke: var(--brand); stroke-width: 0.35; stroke-dasharray: 1 0.8; pointer-events: none; }
+.pin-tip rect { fill: var(--text); opacity: 0.9; }
+.pin-tip text { fill: var(--bg); font-size: 1.5px; font-family: var(--font); }
+.build-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 30px; }
+.btn.small-btn { height: 26px; font-size: 12px; }
+.btn.small-btn kbd { font-size: 10px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; }
+
+.pr-check { display: flex; flex-direction: column; gap: 10px; }
+.btn.primary-btn { border-color: var(--brand); background: var(--brand); color: #fff; font-weight: 600; align-self: flex-start; }
+.btn.primary-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--brand) 85%, black) !important; }
+.btn.primary-btn:disabled { background: var(--hover); border-color: var(--line); color: var(--dim); }
+.pr-result { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--hover); }
+.pr-result ul { margin: 6px 0 0; padding-left: 18px; }
+.pr-result li { margin: 3px 0; }
+.pr-result.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--bg)); }
+.pr-meter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-bottom: 8px; }
+.pr-meter span { display: block; height: 100%; background: var(--brand); transition: width 0.4s; }
+.pr-result.ok .pr-meter span { background: var(--ok); }
+.pr-win { display: flex; flex-direction: column; gap: 10px; }
+
+.pr-lab { position: fixed; inset: 24px; z-index: 50; display: grid; grid-template-rows: auto minmax(0, 1fr); border-radius: 14px; overflow: hidden; background: var(--bg); box-shadow: 0 20px 60px rgb(0 0 0 / 0.3); border: 1px solid var(--line-strong); }
+.pr-lab > header { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.pr-lab > header b { display: inline-flex; align-items: center; gap: 6px; }
+
+@media (max-width: 1000px) {
+  .pr-work { grid-template-columns: 1fr; overflow: auto; }
+  .pr-pane + .pr-pane { border-left: 0; border-top: 1px solid var(--line); }
+  .pr-modes { grid-template-columns: 1fr; }
+  .builder { grid-template-columns: 1fr; }
+}
+
+/* entry points in the main window */
+.practice-cta { display: flex; align-items: center; gap: 18px; width: 100%; max-width: 980px; margin-top: 18px; padding: 16px 18px; border: 1px solid var(--brand-line); border-radius: 10px; background: var(--brand-soft); text-align: left; }
+.practice-cta h3 { margin: 0 0 2px; font-size: 15px; }
+.practice-cta p { margin: 0; }
+.practice-cta-btns { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.practice-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 4px 0; border: 0; background: none; color: var(--accent); font-size: 12.5px; }

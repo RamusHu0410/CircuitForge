@@ -65,6 +65,10 @@ export interface Project {
   /** Classroom lesson about this exact circuit (from the backend). */
   lesson?: import("./api/backend").Lesson;
   generator?: "rules" | "llm";
+  /** The schematic as drawing data with nets: the Classroom's interactive 2D/3D lab. */
+  scene?: import("./lab/scene").Scene;
+  /** Parts and nets as the engine designed them (the lab simulates these). */
+  circuit?: { components: import("./api/backend").ComponentSpec[]; nets: import("./api/backend").NetSpec[] };
 }
 
 export interface Firmware {
