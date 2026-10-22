@@ -64,6 +64,19 @@ class Settings(BaseSettings):
     # The built CircuitForge UI (`npm run build` in the repo root) served at "/". Empty = <repo>/dist.
     ui_dist_dir: str | None = None
 
+    # "desktop": the app on someone's own computer (KiCad window, local service). "web": the public website,
+    # which adds the playground, speed runs and live races, and turns off everything that touches the
+    # visitor's files or KiCad (save, open, clipboard, export).
+    site_mode: Literal["desktop", "web"] = "desktop"
+    # Where the website lives, so the desktop app can point people to it. Empty = not shown.
+    site_url: str | None = None
+    # Website only: circuits one visitor may generate per minute.
+    generate_per_minute: int = 20
+    # Behind a reverse proxy: take the visitor's address from X-Forwarded-For.
+    trust_forwarded: bool = False
+    # Website only: keep the race leaderboard in this JSON file (empty = in memory, reset on restart).
+    leaderboard_file: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

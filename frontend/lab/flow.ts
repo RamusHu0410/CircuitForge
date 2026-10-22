@@ -7,7 +7,7 @@
  * through those points. The views animate electrons along these segments.
  */
 
-import { keyOf, type Layout, type Pt } from "./scene";
+import { keyOf, type Layout, type LayoutWire, type Pt } from "./scene";
 import type { SimResult } from "./sim";
 
 export interface FlowSegment {
@@ -16,6 +16,7 @@ export interface FlowSegment {
   b: Pt;
   /** Conventional current from a to b (A); negative means b to a. */
   i: number;
+  kind?: LayoutWire["kind"];
 }
 
 export interface Flow {
@@ -34,16 +35,23 @@ function onSegment(p: Pt, a: Pt, b: Pt): boolean {
   return inside && keyOf(p) !== keyOf(a) && keyOf(p) !== keyOf(b);
 }
 
-/** Wire segments of one net, split wherever something touches them mid-way. */
-function splitSegments(segs: [Pt, Pt][], points: Pt[]): [Pt, Pt][] {
-  const out: [Pt, Pt][] = [];
+type Seg = [Pt, Pt, LayoutWire["kind"]];
+
+/** Drawn wire segments of one net, split wherever something touches them mid-way. A jumper or a
+ *  breadboard strip only connects at its ends: a hole it happens to pass over isn't joined to it. */
+function splitSegments(segs: Seg[], points: Pt[]): Seg[] {
+  const out: Seg[] = [];
   const all = [...points, ...segs.flatMap(([a, b]) => [a, b])];
-  for (const [a, b] of segs) {
+  for (const [a, b, kind] of segs) {
+    if (kind === "jumper" || kind === "strip") {
+      out.push([a, b, kind]);
+      continue;
+    }
     const cuts = all.filter((p) => onSegment(p, a, b));
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
     const t = (p: Pt) => ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / (len * len);
     const ordered = [a, ...[...new Map(cuts.map((p) => [keyOf(p), p])).values()].sort((p, q) => t(p) - t(q)), b];
-    for (let i = 0; i < ordered.length - 1; i++) out.push([ordered[i], ordered[i + 1]]);
+    for (let i = 0; i < ordered.length - 1; i++) out.push([ordered[i], ordered[i + 1], kind]);
   }
   return out;
 }
@@ -56,7 +64,7 @@ export function computeFlow(layout: Layout, sim: SimResult): Flow {
   for (const net of nets) {
     const pins = layout.parts.flatMap((part) => part.pins.filter((pin) => pin.net === net).map((pin) => ({ at: pin.at, inject: -(sim.pinI[part.ref]?.[pin.number] ?? 0) })));
     const exits: Pt[] = [...layout.ports.filter((p) => p.net === net).map((p) => p.at), ...layout.labels.filter((l) => l.net === net).map((l) => l.at)];
-    const raw: [Pt, Pt][] = layout.wires.filter((w) => w.net === net).flatMap((w) => w.pts.slice(1).map((p, i) => [w.pts[i], p] as [Pt, Pt]));
+    const raw: Seg[] = layout.wires.filter((w) => w.net === net).flatMap((w) => w.pts.slice(1).map((p, i) => [w.pts[i], p, w.kind] as Seg));
     const segs = splitSegments(raw, [...pins.map((p) => p.at), ...exits, ...layout.junctions.filter((j) => j.net === net).map((j) => j.at)]);
 
     // Graph over points.
@@ -115,7 +123,7 @@ export function computeFlow(layout: Layout, sim: SimResult): Flow {
         local.set(up.node, local.get(up.node)! + sub);
       }
     }
-    segs.forEach(([a, b], i) => segments.push({ net, a, b, i: flows[i] }));
+    segs.forEach(([a, b, kind], i) => segments.push({ net, a, b, i: flows[i], kind }));
   }
 
   const through: Flow["through"] = [];

@@ -108,8 +108,11 @@ explanation depths. Each step's "explain" in the transcript opens the matching s
 
 The class opens on **See it work** (`frontend/components/lab/`), an interactive lab for the exact circuit:
 
-- The real KiCad schematic in 2D (pan, zoom) next to a 3D model of the board you can orbit freely. Parts
-  stand with their legs on the schematic's pin positions, so the two views match one to one.
+- The real KiCad schematic in 2D (pan, zoom) next to the same circuit built for real in 3D, orbited freely:
+  on a solderless breadboard, the way a person would build it (`frontend/lab/breadboard.ts`). Supply and
+  ground on the rails, each net on a strip, chips across the centre channel, jumper wires, the battery and an
+  Arduino on the desk beside it. X-ray shows the metal strips inside the board, with the current in them.
+  The placement is checked: every build connects exactly the pins the schematic does.
 - A circuit simulator (`frontend/lab/sim.ts`: nodal analysis, Newton for LEDs/diodes/transistors, time steps
   for capacitors, a behavioural 555, regulators and microcontroller pins) drives everything: electrons (or
   conventional current) move along the actual wires at speeds set by the real current, LEDs glow by their
@@ -120,10 +123,27 @@ The class opens on **See it work** (`frontend/components/lab/`), an interactive 
   change an input signal.
 - **Follow an electron** walks the loop the current actually takes, step by step, with the energy each part
   takes (`frontend/lab/tour.ts`).
+- Arduino code really runs (`frontend/lab/arduino.ts`): an interpreter for the C++ Arduino sketches use,
+  with AVR-sized integers (an `int` is 16 bits, so the classic overflow bugs happen), millis/delay in
+  circuit time, digitalRead/Write, analogRead/Write, tone, shiftOut (a 74HC595 really shifts) and Serial.
+  Press the button in the lab and the program decides what the LEDs do.
 
 **Practice** (home screen, or the left panel): build a real circuit from a schematic, or draw the schematic of
 a circuit you can turn around in 3D. The checker (`frontend/lab/check.ts`) compares connections, not drawing
 style, names mistakes ("D1 is backwards"), and a correct build is switched on in the 3D lab.
+
+**Website only: the Arena** (`frontend/components/arena/`), on when the service runs with `SITE_MODE=web`:
+
+- **Playground:** build anything from the full parts library (with code for an Arduino), run it in the
+  2D/3D lab, and get it rated (`frontend/lab/rate.ts`): safety (overcurrent, overheating, shorts, floating
+  inputs), efficiency (where every milliwatt goes), cost, better parts and materials, and the code.
+- **Speed runs:** timed challenges (`frontend/arena/challenges.ts`) judged by measuring the build in the
+  simulator: currents, voltages, blink rates, button behaviour, filter response. Race the clock, par, and
+  bots from beginner to legend.
+- **Race online:** the same challenges against other people: quick match or a private room with a code.
+  The server keeps the clock and a leaderboard (`kicad-ai-extension/backend/app/race.py`).
+
+The KiCad window shows where to find them instead (set `SITE_URL` to link to the website).
 
 The schematic's drawing data (`scene` in `/api/generate`) comes from `backend/app/core/scene.py`, which reads
 the generated `.kicad_sch` back and puts a net on every wire, pin, junction and label.

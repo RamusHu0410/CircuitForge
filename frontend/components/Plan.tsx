@@ -8,6 +8,7 @@ import { ThinkingLine } from "./Thinking";
 import { CodeEditor } from "./CodeEditor";
 import { SectionView } from "./classroom/SectionView";
 import { EXAMPLE_PROJECT } from "../data/example";
+import { Blocks, Swords, Timer } from "lucide-react";
 
 
 export interface KiCadInfo {
@@ -82,7 +83,7 @@ export const EXAMPLE_PROMPTS = [
 ];
 
 /** What the middle shows before the first prompt: nothing generated, just what you can ask for. */
-function EmptyState({ onPick, onPractice }: { onPick: (text: string) => void; onPractice: () => void }) {
+function EmptyState({ onPick, onPractice, site, onArena }: { onPick: (text: string) => void; onPractice: () => void; site: import("../api/client").SiteInfo | null; onArena?: (tab: "playground" | "speedrun" | "race") => void }) {
   return (
     <motion.div className="empty-state" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.15 }}>
       <Logo size={44} idle />
@@ -111,6 +112,39 @@ function EmptyState({ onPick, onPractice }: { onPick: (text: string) => void; on
           </button>
         </div>
       </div>
+      {site?.features.playground && onArena ? (
+        <div className="arena-cta">
+          <button className="arena-card" onClick={() => onArena("playground")}>
+            <Blocks size={18} />
+            <b>Playground</b>
+            <span className="dim">Build anything, on a breadboard or with code, and get it rated: safety, efficiency, cost, better parts.</span>
+          </button>
+          <button className="arena-card" onClick={() => onArena("speedrun")}>
+            <Timer size={18} />
+            <b>Speed runs</b>
+            <span className="dim">Timed challenges, judged by simulation. Beat par, beat the bots, beat your best.</span>
+          </button>
+          <button className="arena-card" onClick={() => onArena("race")}>
+            <Swords size={18} />
+            <b>Race online</b>
+            <span className="dim">Same challenge, same clock: quick match, or a private room with friends.</span>
+          </button>
+        </div>
+      ) : site?.mode === "desktop" ? (
+        <p className="web-only">
+          The playground, speed runs and live races are on the CircuitForge website
+          {site.site_url ? (
+            <>
+              :{" "}
+              <a href={site.site_url} target="_blank" rel="noreferrer">
+                {site.site_url}
+              </a>
+            </>
+          ) : (
+            "."
+          )}
+        </p>
+      ) : null}
     </motion.div>
   );
 }
@@ -241,6 +275,8 @@ function StepRow({ step, i, open, flash, project, level, onToggle, code, onCode,
 
 interface TranscriptProps extends CodeProps {
   project: Project;
+  web?: boolean;
+  onExplore?: () => void;
   openSteps: Set<string>;
   flashStep: string | null;
   level: Level;
@@ -316,6 +352,22 @@ function ProjectTranscript(props: TranscriptProps) {
               <span className="choice-n">0.</span> Learn how it works <span className="dim">a class about this exact circuit: parts, math{project.firmware ? ", code" : ""}, quizzes</span>
             </button>
           )}
+          {props.web ? (
+            <>
+              <button onClick={props.onExplore}>
+                <span className="choice-n">1.</span> See it work <span className="dim">in 2D and built on a breadboard in 3D, with the electrons moving</span>
+              </button>
+              <button onClick={onSave}>
+                <span className="choice-n">2.</span> Download the KiCad project <span className="dim">.kicad_sch + .kicad_pro{project.firmware ? " + the code (.ino)" : ""}, ready to open in KiCad</span>
+              </button>
+              {project.firmware && (
+                <button onClick={onEditCode}>
+                  <span className="choice-n">3.</span> Edit the code <span className="dim">Arduino C++, pins already match the schematic</span>
+                </button>
+              )}
+            </>
+          ) : (
+          <>
           <button onClick={onPlace}>
             <span className="choice-n">1.</span> Place in my schematic <span className="dim">copies it; then press ⌘V in KiCad's Schematic Editor and click</span>
           </button>
@@ -336,6 +388,8 @@ function ProjectTranscript(props: TranscriptProps) {
           <button onClick={onExport}>
             <span className="choice-n">{project.firmware ? "6." : "5."}</span> Export <span className="dim">schematic pictures (PNG, SVG, PDF){project.firmware ? " + the code" : ""} + KiCad files</span>
           </button>
+          </>
+          )}
         </motion.div>
       )}
 
@@ -372,6 +426,11 @@ interface PlanProps extends Omit<TranscriptProps, "project"> {
   onCloseWelcome: () => void;
   onPickExample: (text: string) => void;
   onPractice: () => void;
+  /** The public website (no KiCad here: downloads instead of opening/pasting). */
+  web?: boolean;
+  site?: import("../api/client").SiteInfo | null;
+  onExplore?: () => void;
+  onArena?: (tab: "playground" | "speedrun" | "race") => void;
 }
 
 export function Plan(props: PlanProps) {
@@ -387,7 +446,7 @@ export function Plan(props: PlanProps) {
         {showWelcome && <Welcome key="welcome" project={project} kicad={kicad} level={level} thinking={messages.some((m) => m.state === "sending")} onClose={onCloseWelcome} />}
       </AnimatePresence>
 
-      {project ? <ProjectTranscript {...props} project={project} /> : !messages.length && <EmptyState onPick={onPickExample} onPractice={props.onPractice} />}
+      {project ? <ProjectTranscript {...props} project={project} /> : !messages.length && <EmptyState onPick={onPickExample} onPractice={props.onPractice} site={props.site ?? null} onArena={props.onArena} />}
 
       <AnimatePresence initial={false}>
         {messages.map((m) => (

@@ -20,7 +20,7 @@ def api(tmp_path: Path) -> Api:
 def test_only_the_calls_are_visible_to_the_page(api: Api) -> None:
     # pywebview exposes every public attribute; settings and the service must stay private.
     assert [name for name in vars(api) if not name.startswith("_")] == []
-    assert {name for name in dir(Api) if not name.startswith("_")} == {"generate", "desktop_info", "preview", "save", "place", "export"}
+    assert {name for name in dir(Api) if not name.startswith("_")} == {"generate", "desktop_info", "preview", "save", "place", "export", "site", "library"}
 
 
 def test_generate_replies_like_the_http_api(api: Api) -> None:

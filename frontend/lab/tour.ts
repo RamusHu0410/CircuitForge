@@ -40,7 +40,7 @@ function wirePath(layout: Layout, net: string, from: Pt, to: Pt): { path: Pt[]; 
   // Points on a segment's interior (pins on a long wire) join that segment.
   const pts = [...pos.values(), from, to];
   for (const w of layout.wires) {
-    if (w.net !== net) continue;
+    if (w.net !== net || w.kind === "jumper" || w.kind === "strip") continue; // those only join at their ends
     for (let i = 0; i < w.pts.length - 1; i++) {
       const [a, b] = [w.pts[i], w.pts[i + 1]];
       for (const p of pts) {

@@ -3,9 +3,15 @@ import { computeFlow, type Flow } from "./flow";
 import type { Layout, Netlist } from "./scene";
 import { emptyControls, Simulator, type SimControls, type SimResult } from "./sim";
 
+export interface LiveState {
+  result: SimResult | null;
+  /** One flow per layout passed in (e.g. the 2D schematic and the 3D breadboard). */
+  flows: (Flow | null)[];
+}
+
 export interface LabSim {
   result: SimResult | null;
-  flow: Flow | null;
+  flows: (Flow | null)[];
   controls: SimControls;
   update: (fn: (c: SimControls) => SimControls) => void;
   /** Circuit seconds per real second; null = automatic. */
@@ -16,18 +22,19 @@ export interface LabSim {
   setPaused: (p: boolean) => void;
   restart: () => void;
   dynamic: boolean;
+  sim: Simulator;
   /** Latest values for per-frame animation (3D particles) without re-rendering React. */
-  live: React.RefObject<{ result: SimResult | null; flow: Flow | null }>;
+  live: React.RefObject<LiveState>;
 }
 
 /** Runs the circuit: steps the simulator every animation frame and publishes ~15 results a second. */
-export function useLabSim(netlist: Netlist, layout: Layout, firmware?: string): LabSim {
+export function useLabSim(netlist: Netlist, layouts: Layout[], firmware?: string): LabSim {
   const [controls, setControls] = useState<SimControls>(emptyControls);
-  const [snap, setSnap] = useState<{ result: SimResult | null; flow: Flow | null }>({ result: null, flow: null });
+  const [snap, setSnap] = useState<LiveState>({ result: null, flows: [] });
   const [speed, setSpeed] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
   const sim = useMemo(() => new Simulator(netlist, emptyControls(), firmware), [netlist, firmware]);
-  const live = useRef<{ result: SimResult | null; flow: Flow | null }>({ result: null, flow: null });
+  const live = useRef<LiveState>({ result: null, flows: [] });
   const controlsRef = useRef(controls);
   controlsRef.current = controls;
 
@@ -45,12 +52,12 @@ export function useLabSim(netlist: Netlist, layout: Layout, firmware?: string): 
     let raf = 0;
     let last = performance.now();
     let published = 0;
-    live.current = { result: null, flow: null };
+    live.current = { result: null, flows: [] };
     sim.advance(1e-4);
     const publish = () => {
       const r = sim.result();
       if (r === live.current.result) return; // nothing changed (a still circuit)
-      live.current = { result: r, flow: computeFlow(layout, r) };
+      live.current = { result: r, flows: layouts.map((l) => computeFlow(l, r)) };
       setSnap(live.current);
     };
     publish();
@@ -66,7 +73,7 @@ export function useLabSim(netlist: Netlist, layout: Layout, firmware?: string): 
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [sim, layout]);
+  }, [sim, layouts]);
 
   const update = useCallback((fn: (c: SimControls) => SimControls) => setControls((c) => fn(c)), []);
   const restart = useCallback(() => {
@@ -74,5 +81,5 @@ export function useLabSim(netlist: Netlist, layout: Layout, firmware?: string): 
     sim.setControls(controlsRef.current);
   }, [sim]);
 
-  return { result: snap.result, flow: snap.flow, controls, update, speed, setSpeed, effectiveSpeed, paused, setPaused, restart, dynamic: sim.dynamic, live };
+  return { result: snap.result, flows: snap.flows, controls, update, speed, setSpeed, effectiveSpeed, paused, setPaused, restart, dynamic: sim.dynamic, sim, live };
 }

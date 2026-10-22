@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
       // so fail loudly instead of silently moving to another port.
       port: 5173,
       strictPort: true,
-      proxy: { "/api": { target: backend, changeOrigin: false } },
+      proxy: { "/api": { target: backend, changeOrigin: false, ws: true } }, // ws: live races
     },
   };
 });

@@ -159,6 +159,8 @@ export interface LayoutPart {
   bbox: [number, number, number, number];
   rot: number;
   pins: LayoutPin[];
+  /** Height of what it stands on, relative to the board's surface (a battery on the desk: −8.5 mm). */
+  elev?: number;
 }
 
 export interface LayoutPort {
@@ -169,13 +171,36 @@ export interface LayoutPort {
   dir: Pt;
 }
 
+export interface LayoutWire {
+  net: string;
+  pts: Pt[];
+  /** trace: drawn flat (the schematic's wires). jumper: a hook-up wire arcing between two points.
+   *  strip: a breadboard's hidden metal clip joining holes (current flows under the board). */
+  kind?: "trace" | "jumper" | "strip";
+  color?: string;
+  /** Height of each point (mm, default 0 = the board's surface): a jumper plugged into an Arduino's header. */
+  elev?: number[];
+}
+
+/** The desk a breadboard stands on, relative to the breadboard's top (a breadboard is ~8.5 mm thick). */
+export const DESK = -8.5;
+
+/** A solderless breadboard the parts are plugged into (see lab/breadboard.ts). */
+export interface BreadboardSpec {
+  columns: number;
+  origin: Pt; // centre of hole (column 0, row a)
+  /** y of each row of holes: rails and terminal rows. */
+  rails: { y: number; sign: "+" | "-"; net?: string }[];
+}
+
 export interface Layout {
   parts: LayoutPart[];
-  wires: { net: string; pts: Pt[]; jumper?: boolean }[];
+  wires: LayoutWire[];
   ports: LayoutPort[];
   labels: { net: string; at: Pt }[];
   junctions: { net: string; at: Pt }[];
   bbox: [number, number, number, number];
+  board?: BreadboardSpec;
 }
 
 export const isGroundNet = (net: string) => /^(GND|VSS|0V|AGND|DGND)$/i.test(net);

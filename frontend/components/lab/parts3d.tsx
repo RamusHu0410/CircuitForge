@@ -39,7 +39,7 @@ function Leg({ pin, to, r = 0.3, color }: { pin: V3; to: V3; r?: number; color?:
   const knee: V3 = [pin[0], to[1], pin[2]];
   return (
     <>
-      <Rod a={[pin[0], 0, pin[2]]} b={knee} r={r} color={color} />
+      <Rod a={[pin[0], -1.6, pin[2]]} b={knee} r={r} color={color} /> {/* down into the hole */}
       <Rod a={knee} b={to} r={r} color={color} />
       <mesh position={knee} castShadow>
         <sphereGeometry args={[r, 8, 8]} />
@@ -223,8 +223,9 @@ function Battery(p: PartModelProps) {
   const plus = pins["1"];
   const minus = pins["2"];
   const { mid, angle } = axis(plus, minus);
+  const onDesk = p.part.elev !== undefined; // beside a breadboard: its terminals are where its leads start
   const volts = parseValue(p.value) ?? 9;
-  const nine = volts > 6;
+  const nine = volts > 6 || onDesk;
   const size: V3 = nine ? [7, 10, 4.5] : [5.5, 8, 5.5];
   const top = size[1] + 0.5;
   const along = (d: number): V3 => [mid[0] + Math.cos(angle) * d, top + 0.8, mid[2] + Math.sin(angle) * d];
@@ -254,8 +255,59 @@ function Battery(p: PartModelProps) {
         <cylinderGeometry args={[1.2, 1.2, 1.4, 6]} />
         <meshStandardMaterial color="#d6d9de" metalness={0.9} roughness={0.25} />
       </mesh>
-      <Wire3 from={plusAt} to={plus} color="#d93b2b" />
-      <Wire3 from={minusAt} to={minus} color="#222" />
+      {!onDesk && <Wire3 from={plusAt} to={plus} color="#d93b2b" />}
+      {!onDesk && <Wire3 from={minusAt} to={minus} color="#222" />}
+      <TextSprite text={`${volts} V`} position={[mid[0], top + 3, mid[2]]} size={1.8} color="#e2a72e" />
+    </>
+  );
+}
+
+/** An Arduino lying on the desk: the board on standoffs, two rows of header sockets on top. */
+function ArduinoBoard(p: PartModelProps) {
+  const pts = p.part.pins.map((pin) => p.w(pin.at[0], pin.at[1]));
+  const rowsZ = [...new Set(pts.map((q) => Math.round(q[2] * 10) / 10))].sort((a, b) => a - b);
+  const xs = pts.map((q) => q[0]);
+  const x0 = Math.min(...xs) - 6;
+  const x1 = Math.max(...xs) + 4;
+  const z0 = rowsZ[0] - 3.5;
+  const z1 = rowsZ[rowsZ.length - 1] + 3.5;
+  const uno = p.part.kind === "arduino_uno";
+  const BOARD_TOP = 3.2;
+  const HEADER = 8.5;
+  return (
+    <>
+      <mesh position={[(x0 + x1) / 2, 2.4, (z0 + z1) / 2]} castShadow receiveShadow>
+        <boxGeometry args={[x1 - x0, 1.6, z1 - z0]} />
+        <meshStandardMaterial color="#0d6aa6" roughness={0.55} />
+      </mesh>
+      {rowsZ.map((z) => {
+        const row = pts.filter((q) => Math.abs(q[2] - z) < 0.2);
+        const rx0 = Math.min(...row.map((q) => q[0])) - 1.27;
+        const rx1 = Math.max(...row.map((q) => q[0])) + 1.27;
+        return (
+          <group key={z}>
+            <mesh position={[(rx0 + rx1) / 2, BOARD_TOP + HEADER / 2, z]} castShadow>
+              <boxGeometry args={[rx1 - rx0, HEADER, 2.54]} />
+              <meshStandardMaterial color="#1b1b1d" roughness={0.6} />
+            </mesh>
+            {row.map((q, i) => (
+              <mesh key={i} position={[q[0], BOARD_TOP + HEADER + 0.01, q[2]]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[1, 1]} />
+                <meshBasicMaterial color="#000" />
+              </mesh>
+            ))}
+          </group>
+        );
+      })}
+      <mesh position={[(x0 + x1) / 2 + (uno ? 6 : 0), BOARD_TOP + 0.9, (z0 + z1) / 2]} castShadow>
+        <boxGeometry args={uno ? [35, 1.8, 7.5] : [7, 1.2, 7]} />
+        <meshStandardMaterial color="#141416" roughness={0.4} />
+      </mesh>
+      <mesh position={[x0 + 3, BOARD_TOP + (uno ? 5.5 : 1.8), (z0 + z1) / 2]} castShadow>
+        <boxGeometry args={uno ? [16, 11, 12] : [9, 3.6, 7.5]} />
+        <meshStandardMaterial color="#c4c9d1" metalness={0.85} roughness={0.3} />
+      </mesh>
+      <TextSprite text={uno ? "ARDUINO UNO" : "ARDUINO NANO"} position={[(x0 + x1) / 2, BOARD_TOP + 2.5, (z0 + z1) / 2 + (uno ? 9 : 0)]} size={uno ? 3 : 1.8} color="#e9ecef" />
     </>
   );
 }
@@ -495,7 +547,7 @@ export function PartModel(props: PartModelProps) {
       return <Header {...props} />;
     case "arduino_uno":
     case "arduino_nano":
-      return <Chip p={props} color="#0d6aa6" height={1.6} lift={6} label={part.kind === "arduino_uno" ? "ARDUINO UNO" : "ARDUINO NANO"} board />;
+      return <ArduinoBoard {...props} />;
     case "regulator_7805":
     case "regulator_ams1117_3v3":
       return <Chip p={props} height={4} label={REG_LABEL[part.kind]} />;

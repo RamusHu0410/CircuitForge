@@ -5,9 +5,12 @@
  */
 
 import { footprint } from "../components/practice/physical";
-import { cleanPinName, pinInner, place, type Layout, type Netlist, type Pt, type Scene } from "./scene";
+import { cleanPinName, pinInner, place, symbolBox, type Layout, type LibSymbol, type Netlist, type Pt, type Scene, type SceneComponent, type ScenePort } from "./scene";
 
 export type Look = "schematic" | "physical";
+
+/** Jumper colours, in the order wires are added (the 2D builder and the 3D view use the same). */
+export const WIRE_COLORS = ["#d93b2b", "#202124", "#2f6fd8", "#2c9e3b", "#e0a020", "#8a4fd6", "#e07b39"];
 
 export interface BuildPart {
   id: string;
@@ -61,9 +64,16 @@ export function turn([x, y]: Pt, rot: number): Pt {
   return r === 90 ? [-y, x] : r === 180 ? [-x, -y] : r === 270 ? [y, -x] : [x, y];
 }
 
-export function partPins(part: BuildPart, look: Look, scene: Scene, pinNames: Record<string, string>): PlacedPin[] {
+export type Symbols = Record<string, LibSymbol>;
+
+/** A part's pin names ("K", "TRIG", "D3"…), from its symbol. */
+export const pinNamesOf = (symbols: Symbols, libId: string): Record<string, string> =>
+  Object.fromEntries((symbols[libId]?.pins ?? []).filter((p) => !p.hidden).map((p) => [p.number, p.name]));
+
+export function partPins(part: BuildPart, look: Look, symbols: Symbols): PlacedPin[] {
+  const pinNames = pinNamesOf(symbols, part.lib_id);
   if (look === "schematic") {
-    const lib = scene.library[part.lib_id];
+    const lib = symbols[part.lib_id];
     const pl = { x: part.x, y: part.y, rot: part.rot, mirror: false };
     return lib.pins
       .filter((p) => !p.hidden)
@@ -108,26 +118,25 @@ function nets(build: Build): Map<string, string> {
   return out;
 }
 
-export function buildNetlist(build: Build, target: Netlist): Netlist {
+export function buildNetlist(build: Build, symbols: Symbols, purposes: Record<string, string> = {}): Netlist {
   const net = nets(build);
   const parts = build.parts.map((p) => {
-    const t = target.parts.find((q) => q.ref === p.ref);
+    const pinNames = pinNamesOf(symbols, p.lib_id);
     const pins: Record<string, string> = {};
-    for (const num of Object.keys(t?.pinNames ?? {})) {
+    for (const num of Object.keys(pinNames)) {
       const name = net.get(`${p.id}.${num}`);
       if (name) pins[num] = name;
     }
-    return { ref: p.ref, kind: p.kind, value: p.value, purpose: t?.purpose ?? "", pins, pinNames: t?.pinNames ?? {} };
+    return { ref: p.ref, kind: p.kind, value: p.value, purpose: purposes[p.ref] ?? "", pins, pinNames };
   });
   return { parts, nets: [...new Set(net.values())] };
 }
 
-export function buildLayout(build: Build, look: Look, scene: Scene, target: Netlist): Layout {
+export function buildLayout(build: Build, look: Look, symbols: Symbols): Layout {
   const net = nets(build);
   const where = new Map<string, Pt>();
   const parts = build.parts.map((p) => {
-    const pinNames = target.parts.find((q) => q.ref === p.ref)?.pinNames ?? {};
-    const pins = partPins(p, look, scene, pinNames).map((pin) => {
+    const pins = partPins(p, look, symbols).map((pin) => {
       where.set(`${p.id}.${pin.number}`, pin.at);
       return { number: pin.number, name: pin.name, at: pin.at, inner: pin.inner, net: net.get(`${p.id}.${pin.number}`) };
     });
@@ -138,10 +147,10 @@ export function buildLayout(build: Build, look: Look, scene: Scene, target: Netl
   });
   for (const port of build.ports) where.set(`${port.id}.1`, [port.x, port.y]);
   const wires = build.wires
-    .map((w) => {
+    .map((w, i) => {
       const a = where.get(`${w.a.id}.${w.a.pin}`);
       const b = where.get(`${w.b.id}.${w.b.pin}`);
-      return a && b ? { net: net.get(`${w.a.id}.${w.a.pin}`) ?? "", pts: [a, b], jumper: true } : null;
+      return a && b ? { net: net.get(`${w.a.id}.${w.a.pin}`) ?? "", pts: [a, b], kind: "jumper" as const, color: WIRE_COLORS[i % WIRE_COLORS.length] } : null;
     })
     .filter((w): w is NonNullable<typeof w> => !!w);
   const all = [...where.values()];
@@ -154,5 +163,69 @@ export function buildLayout(build: Build, look: Look, scene: Scene, target: Netl
     labels: [],
     junctions: [],
     bbox: all.length ? [Math.min(...xs) - 12, Math.min(...ys) - 12, Math.max(...xs) + 12, Math.max(...ys) + 12] : [0, 0, 100, 100],
+  };
+}
+
+/** A schematic drawn in the builder, as the drawing data the lab shows (2D view + simulation). */
+export function sceneFromBuild(build: Build, symbols: Symbols, purposes: Record<string, string> = {}): Scene {
+  const net = nets(build);
+  const where = new Map<string, Pt>();
+  const components: SceneComponent[] = build.parts.map((p) => {
+    const pl = { x: p.x, y: p.y, rot: p.rot, mirror: false };
+    const pins = partPins(p, "schematic", symbols);
+    pins.forEach((pin) => where.set(`${p.id}.${pin.number}`, pin.at));
+    const box = symbolBox(symbols[p.lib_id], pl);
+    const pin_nets: Record<string, string> = {};
+    for (const pin of pins) {
+      const n = net.get(`${p.id}.${pin.number}`);
+      if (n) pin_nets[pin.number] = n;
+    }
+    return {
+      ref: p.ref,
+      kind: p.kind,
+      value: p.value,
+      purpose: purposes[p.ref] ?? "",
+      lib_id: p.lib_id,
+      x: p.x,
+      y: p.y,
+      rot: p.rot,
+      mirror: false,
+      pin_nets,
+      ref_text: { text: p.ref, x: box[2] + 1, y: (box[1] + box[3]) / 2 - 1, angle: 0, justify: "left" },
+      value_text: { text: p.value, x: box[2] + 1, y: (box[1] + box[3]) / 2 + 1.2, angle: 0, justify: "left" },
+    };
+  });
+  for (const port of build.ports) where.set(`${port.id}.1`, [port.x, port.y]);
+  const wires: Scene["wires"] = [];
+  for (const w of build.wires) {
+    const a = where.get(`${w.a.id}.${w.a.pin}`);
+    const b = where.get(`${w.b.id}.${w.b.pin}`);
+    const n = net.get(`${w.a.id}.${w.a.pin}`);
+    if (!a || !b || !n) continue;
+    const corner: Pt = [b[0], a[1]]; // drawn as in the builder: across, then down
+    if (Math.abs(a[0] - b[0]) > 1e-6) wires.push({ net: n, a, b: corner });
+    if (Math.abs(a[1] - b[1]) > 1e-6) wires.push({ net: n, a: corner, b });
+  }
+  const ports: ScenePort[] = build.ports.map((p) => ({
+    lib_id: p.lib_id,
+    net: p.net,
+    x: p.x,
+    y: p.y,
+    rot: 0,
+    text: { text: p.net, x: p.x, y: /GND/i.test(p.net) ? p.y + 5 : p.y - 3.6, angle: 0, justify: "" },
+  }));
+  const pts = [...where.values(), ...components.flatMap((c) => { const b = symbolBox(symbols[c.lib_id], c); return [[b[0], b[1]], [b[2] + 8, b[3]]] as Pt[]; })];
+  const xs = pts.map((q) => q[0]);
+  const ys = pts.map((q) => q[1]);
+  const used = new Set([...components.map((c) => c.lib_id), ...ports.map((p) => p.lib_id)]);
+  return {
+    bbox: pts.length ? [Math.min(...xs) - 6, Math.min(...ys) - 8, Math.max(...xs) + 6, Math.max(...ys) + 8] : [0, 0, 100, 70],
+    library: Object.fromEntries([...used].map((id) => [id, symbols[id]])),
+    components,
+    ports,
+    wires,
+    labels: [],
+    junctions: [],
+    no_connects: [],
   };
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Box, Columns2, Pause, Play, RotateCcw, Square, Waves, X, Zap } from "lucide-react";
 import type { Level } from "../../types";
 import { layoutFromScene, netlistFromScene, type Layout, type Netlist, type Pt, type Scene } from "../../lab/scene";
+import { breadboardLayout } from "../../lab/breadboard";
 import { buildTour, type TourStep } from "../../lab/tour";
 import { useLabSim } from "../../lab/useLab";
 import { Circuit3D } from "./Lazy3D";
@@ -13,16 +14,15 @@ import "./lab.css";
 type View = "2d" | "3d" | "split";
 
 interface Props {
-  /** A generated circuit (2D + 3D), or a layout + netlist from the practice builder (3D only). */
+  /** A generated circuit (2D schematic + 3D breadboard), or a netlist (3D only). */
   scene?: Scene;
+  /** The 3D build, when it's the student's own (practice); otherwise it's built on a breadboard. */
   layout?: Layout;
   netlist?: Netlist;
   firmware?: string;
   level: Level;
   summary?: string;
   initialView?: View;
-  /** Practice builds use jumper wires instead of traces. */
-  jumpers?: boolean;
   /** Select this part when the lab opens (e.g. from a classroom section). */
   focusRef?: string | null;
 }
@@ -51,17 +51,21 @@ function pointAlong(path: Pt[], f: number): Pt {
 
 const pathLength = (path: Pt[]) => path.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - path[i][0], p[1] - path[i][1]), 0);
 
-export function Lab({ scene, layout: layoutIn, netlist: netlistIn, firmware, level, summary, initialView, jumpers, focusRef }: Props) {
-  const layout = useMemo(() => layoutIn ?? layoutFromScene(scene!), [layoutIn, scene]);
+export function Lab({ scene, layout: layoutIn, netlist: netlistIn, firmware, level, summary, initialView, focusRef }: Props) {
   const netlist = useMemo(() => netlistIn ?? netlistFromScene(scene!), [netlistIn, scene]);
-  const sim = useLabSim(netlist, layout, firmware);
+  const layout2d = useMemo(() => (scene ? layoutFromScene(scene) : null), [scene]);
+  const layout3d = useMemo(() => layoutIn ?? breadboardLayout(netlist), [layoutIn, netlist]);
+  const layouts = useMemo(() => (layout2d ? [layout2d, layout3d] : [layout3d]), [layout2d, layout3d]);
+  const index3d = layout2d ? 1 : 0;
+  const sim = useLabSim(netlist, layouts, firmware);
   const [view, setView] = useState<View>(initialView ?? (scene ? "split" : "3d"));
   const [selection, setSelection] = useState<Selection | null>(focusRef ? { kind: "part", ref: focusRef } : null);
   const [electrons, setElectrons] = useState(true);
   const [showFlow, setShowFlow] = useState(true);
   const [showVolts, setShowVolts] = useState(false);
-  const [tour, setTour] = useState<{ steps: TourStep[]; i: number } | null>(null);
-  const [tourDot, setTourDot] = useState<Pt | null>(null);
+  // The same walk in both views: `steps` drives the words and the 2D path, `steps3d` the breadboard path.
+  const [tour, setTour] = useState<{ steps: TourStep[]; steps3d: TourStep[]; i: number } | null>(null);
+  const [tourDots, setTourDots] = useState<{ d2: Pt | null; d3: Pt | null }>({ d2: null, d3: null });
   const [autoplay, setAutoplay] = useState(true);
   const [tourEmpty, setTourEmpty] = useState(false);
 
@@ -73,14 +77,15 @@ export function Lab({ scene, layout: layoutIn, netlist: netlistIn, firmware, lev
   const select = useCallback((s: Selection | null) => setSelection(s), []);
 
   const startTour = () => {
-    const steps = sim.result ? buildTour(layout, sim.result) : [];
-    if (!steps.length) {
+    const steps3d = sim.result ? buildTour(layout3d, sim.result) : [];
+    const steps = layout2d && sim.result ? buildTour(layout2d, sim.result) : steps3d;
+    if (!steps.length || steps.length !== steps3d.length) {
       setTourEmpty(true);
       window.setTimeout(() => setTourEmpty(false), 4000);
       return;
     }
     setElectrons(true);
-    setTour({ steps, i: 0 });
+    setTour({ steps, steps3d, i: 0 });
   };
 
   // Move the tour's electron along the current step's path, then on to the next step.
@@ -88,10 +93,12 @@ export function Lab({ scene, layout: layoutIn, netlist: netlistIn, firmware, lev
   tourRef.current = tour;
   useEffect(() => {
     if (!tour) {
-      setTourDot(null);
+      setTourDots({ d2: null, d3: null });
       return;
     }
     const step = tour.steps[tour.i];
+    const step3d = tour.steps3d[tour.i];
+    const at = (s: TourStep, f: number) => (s.jump && f > 0.5 ? s.path[s.path.length - 1] : s.jump ? s.path[0] : pointAlong(s.path, f));
     const len = pathLength(step.path);
     const duration = Math.max(0.9, Math.min(3.5, len / 18)) * 1000;
     const start = performance.now();
@@ -100,7 +107,7 @@ export function Lab({ scene, layout: layoutIn, netlist: netlistIn, firmware, lev
     let advanced = false;
     const tick = (now: number) => {
       const f = Math.min(1, (now - start) / duration);
-      setTourDot(step.jump && f > 0.5 ? step.path[step.path.length - 1] : step.jump ? step.path[0] : pointAlong(step.path, f));
+      setTourDots({ d2: at(step, f), d3: at(step3d, f) });
       if (f < 1) raf = requestAnimationFrame(tick);
       else if (autoplay && !advanced) {
         advanced = true;
@@ -126,28 +133,25 @@ export function Lab({ scene, layout: layoutIn, netlist: netlistIn, firmware, lev
     const nets = new Set<string>();
     if (step.ref) {
       refs.add(step.ref);
-      const part = layout.parts.find((p) => p.ref === step.ref);
+      const part = layout3d.parts.find((p) => p.ref === step.ref);
       part?.pins.forEach((p) => p.net && nets.add(p.net));
     }
     if (step.net) {
       nets.add(step.net);
-      layout.parts.forEach((p) => p.pins.some((q) => q.net === step.net) && refs.add(p.ref));
+      layout3d.parts.forEach((p) => p.pins.some((q) => q.net === step.net) && refs.add(p.ref));
     }
     if (!step.ref && !step.net) return null;
     return { refs, nets };
-  }, [tour, layout]);
+  }, [tour, layout3d]);
 
   const viewProps = {
-    layout,
     result: sim.result,
-    flow: sim.flow,
     selection,
     onSelect: select,
     electrons,
     showFlow,
     showVolts,
     focus,
-    tourDot,
     pressed: sim.controls.pressed,
     onPress: press,
   };
@@ -210,13 +214,15 @@ export function Lab({ scene, layout: layoutIn, netlist: netlistIn, firmware, lev
       </div>
 
       <div className={`lab-views ${view}`}>
-        {scene && view !== "3d" && <Schematic2D scene={scene} {...viewProps} />}
-        {view !== "2d" && <Circuit3D {...viewProps} live={sim.live} values={sim.controls.overrides} wipers={sim.controls.wiper} jumpers={jumpers} />}
+        {scene && layout2d && view !== "3d" && <Schematic2D scene={scene} layout={layout2d} flow={sim.flows[0] ?? null} tourDot={tourDots.d2} {...viewProps} />}
+        {(view !== "2d" || !scene) && (
+          <Circuit3D layout={layout3d} tourDot={tourDots.d3} {...viewProps} live={sim.live} flowIndex={index3d} values={sim.controls.overrides} wipers={sim.controls.wiper} />
+        )}
         {tourEmpty && <div className="lab-toast">No current is flowing right now, so there's no loop to follow. Press a button, switch on an output, or raise an input first.</div>}
       </div>
 
       <aside className="lab-side">
-        <Inspector selection={selection} onSelect={select} netlist={netlist} layout={layout} result={sim.result} controls={sim.controls} update={sim.update} level={level} summary={summary} onTour={startTour} />
+        <Inspector selection={selection} onSelect={select} netlist={netlist} layout={layout3d} result={sim.result} controls={sim.controls} update={sim.update} level={level} summary={summary} onTour={startTour} />
       </aside>
 
       {tour && step && (

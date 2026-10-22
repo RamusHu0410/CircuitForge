@@ -224,6 +224,29 @@ examples/kicad10_test_project/ test project used for KiCad 10 testing
     ~/Documents/KiCad/10.0/plugins/ai-schematic-generator/entrypoint.py --check
   ```
 
+## Website mode
+
+The same service runs the public website when started with `SITE_MODE=web`. It then adds the playground,
+speed runs and live races, and switches off everything that acts on the computer it runs on (saving into
+KiCad, opening KiCad, the clipboard, exports): visitors download the KiCad project instead.
+
+```bash
+cd backend
+SITE_MODE=web \
+ALLOWED_HOSTS=circuitforge.example.com \
+ALLOWED_ORIGINS=https://circuitforge.example.com \
+TRUST_FORWARDED=true \
+LEADERBOARD_FILE=/var/lib/circuitforge/leaderboard.json \
+uvicorn app.main:app --host 127.0.0.1 --port 8765 --workers 1
+```
+
+- Put it behind an HTTPS reverse proxy that forwards WebSockets (`/api/race/ws`).
+- Run **one** worker: race rooms live in memory.
+- `GENERATE_PER_MINUTE` (default 20) limits circuits per visitor.
+- `kicad-cli` is optional on a server: without it, generation skips ERC and still works.
+- Race times are measured by the server, but whether a build passes is judged in the player's browser,
+  so the leaderboard is a friendly one, not cheat-proof.
+
 ## Publish and update
 
 KiCad's Plugin and Content Manager lists packages from

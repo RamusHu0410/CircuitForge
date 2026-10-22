@@ -9,7 +9,8 @@
  * student can switch (or an input with a pull-up).
  */
 
-import { isGroundNet, type Netlist, type NetPart } from "./scene";
+import { ArduinoProgram, arduinoPinNumber, type ArduinoIO } from "./arduino";
+import { cleanPinName as cleanName, isGroundNet, type Netlist, type NetPart } from "./scene";
 import { LED_VF, ledColor, parseValue, railVolts } from "./values";
 
 const VT = 0.025852; // thermal voltage at 27 °C
@@ -50,6 +51,22 @@ export interface SimResult {
   pinI: Record<string, Record<string, number>>; // ref -> pin -> current INTO the part (A)
   parts: Record<string, PartReading>;
   pinModes: Record<string, Record<string, PinMode>>; // microcontroller pins
+  /** Each microcontroller's program: whether it runs, its error, what it printed. */
+  mcu: Record<string, { running: boolean; error: string | null; serial: string; notes: string[] }>;
+}
+
+/** A microcontroller's pins as its program (or the student's switches) set them. */
+interface McuState {
+  ref: string;
+  part: NetPart;
+  gnd: number;
+  modes: Record<string, PinMode>;
+  level: Record<string, number>; // output level 0..1 (PWM = the average)
+  program: ArduinoProgram | null;
+  error: string | null;
+  serial: string;
+  /** Things the program did that are probably mistakes (for the rating). */
+  notes: Set<string>;
 }
 
 /* ---------- elements ---------- */
@@ -277,6 +294,10 @@ export class Simulator {
   private v: Float64Array = new Float64Array(0);
   private latches = new Map<string, boolean>();
   readonly pinModes: Record<string, Record<string, PinMode>> = {};
+  private mcus: McuState[] = [];
+  private firmware: string | undefined;
+  /** Logic that reacts the instant a program writes a pin (a shift register's clock). */
+  private digitalListeners: ((net: string, high: boolean) => void)[] = [];
   readonly ground: string | null;
   t = 0;
   ok = true;
@@ -293,8 +314,84 @@ export class Simulator {
     this.ground = nets.find(isGroundNet) ?? (battery ? battery.pins["2"] : null) ?? nets[0] ?? null;
     for (const net of nets) if (net !== this.ground && !this.nodeOf.has(net)) this.nodeOf.set(net, this.nodeOf.size);
     this.n = this.nodeOf.size;
+    this.firmware = firmware;
     this.build(firmwarePinModes(firmware));
     this.v = new Float64Array(this.n);
+    this.startPrograms();
+  }
+
+  /** Load the sketch into the (first) microcontroller and start it, like pressing reset. */
+  private startPrograms() {
+    const mcu = this.mcus[0];
+    if (!mcu || !this.firmware?.trim()) return;
+    try {
+      mcu.program = new ArduinoProgram(this.firmware);
+    } catch (e) {
+      mcu.error = (e as Error).message;
+      return;
+    }
+    this.dynamic = true;
+    for (const num of Object.keys(mcu.modes)) {
+      mcu.modes[num] = "input"; // every pin starts as an input after reset
+      mcu.level[num] = 0;
+    }
+    mcu.program.start(this.ioFor(mcu));
+  }
+
+  private ioFor(mcu: McuState): ArduinoIO {
+    const numFor = (pin: number) => Object.keys(mcu.part.pinNames).find((k) => arduinoPinNumber(mcu.part.pinNames[k]) === pin);
+    const volts = (num: string | undefined) => {
+      const net = num ? mcu.part.pins[num] : undefined;
+      if (!net) return mcu.modes[num ?? ""] === "input_pullup" ? 5 : 0;
+      return V(this.v, this.node(net)) - V(this.v, mcu.gnd);
+    };
+    const changed = (num: string | undefined, high: boolean) => {
+      this.dirty = true;
+      this.last = null;
+      const net = num ? mcu.part.pins[num] : undefined;
+      if (net) for (const l of this.digitalListeners) l(net, high);
+    };
+    return {
+      pinMode: (pin, mode) => {
+        const num = numFor(pin);
+        if (num) mcu.modes[num] = mode;
+        this.dirty = true;
+      },
+      digitalWrite: (pin, high) => {
+        const num = numFor(pin);
+        if (!num) return;
+        // On a real AVR, writing HIGH to an input turns its pull-up on.
+        if (mcu.modes[num] !== "output") mcu.notes.add(`${cleanName(mcu.part.pinNames[num])} is written with digitalWrite() but never set as OUTPUT, so it only switches its weak pull-up`);
+        if (mcu.modes[num] === "input" && high) mcu.modes[num] = "input_pullup";
+        else if (mcu.modes[num] === "input_pullup" && !high) mcu.modes[num] = "input";
+        mcu.level[num] = high ? 1 : 0;
+        changed(num, high);
+      },
+      digitalRead: (pin) => volts(numFor(pin)) > 2.5,
+      analogRead: (pin) => Math.max(0, Math.min(1023, (volts(numFor(pin)) / 5) * 1023)),
+      analogWrite: (pin, duty) => {
+        const num = numFor(pin);
+        if (!num) return;
+        mcu.modes[num] = "output";
+        mcu.level[num] = duty;
+        changed(num, duty > 0.5);
+      },
+      tone: (pin) => {
+        const num = numFor(pin);
+        if (!num) return;
+        mcu.modes[num] = "output";
+        mcu.level[num] = 0.5; // a square wave averages to half the supply
+        changed(num, true);
+      },
+      noTone: (pin) => {
+        const num = numFor(pin);
+        if (num) mcu.level[num] = 0;
+        changed(num, false);
+      },
+      print: (text) => {
+        mcu.serial = (mcu.serial + text).slice(-4000);
+      },
+    };
   }
 
   node(net: string | undefined): number {
@@ -312,6 +409,13 @@ export class Simulator {
     this.v = new Float64Array(this.n);
     this.latches.clear();
     for (const e of this.elements) e.reset?.();
+    for (const m of this.mcus) {
+      m.program = null;
+      m.error = null;
+      m.serial = "";
+      m.notes.clear();
+    }
+    this.startPrograms();
     this.dirty = true;
   }
 
@@ -388,7 +492,7 @@ export class Simulator {
           this.microcontroller(p, driven, firmware);
           break;
         case "shift_register_74hc595":
-          this.logicChip(p, ["16"], ["8"], ["15", "1", "2", "3", "4", "5", "6", "7", "9"]);
+          this.shiftRegister(p);
           break;
         default:
           break;
@@ -482,24 +586,23 @@ export class Simulator {
     const gndPins = Object.keys(p.pinNames).filter((k) => p.pinNames[k] === "GND" && p.pins[k]);
     const gnd = gndPins.length ? this.node(p.pins[gndPins[0]]) : -1;
     const gndPin = gndPins[0] ?? "";
-    const modes: Record<string, PinMode> = {};
-    this.pinModes[p.ref] = modes;
+    const mcu: McuState = { ref: p.ref, part: p, gnd, modes: {}, level: {}, program: null, error: null, serial: "", notes: new Set() };
+    this.mcus.push(mcu);
+    this.pinModes[p.ref] = mcu.modes;
     const kindsOn = (net: string) => this.netlist.parts.filter((q) => q !== p && Object.values(q.pins).includes(net)).map((q) => q.kind);
     for (const [num, name] of Object.entries(p.pinNames)) {
       const net = p.pins[num];
       if (!net) continue;
       const node = this.node(net);
-      const add = (e: Element) => {
+      if (name === "+5V" || name === "3V3") {
+        const e = source(node, gnd, () => (name === "+5V" ? 5 : 3.3), name === "+5V" ? 0.1 : 1);
         e.owner = { ref: p.ref, pins: [num, gndPin] };
         this.elements.push(e);
-      };
-      if (name === "+5V" || name === "3V3") {
-        add(source(node, gnd, () => (name === "+5V" ? 5 : 3.3), name === "+5V" ? 0.1 : 1));
         driven.add(net);
         continue;
       }
       if (!DIGITAL.test(name)) continue;
-      const short = name.split("/")[0];
+      // Without a program, guess each pin's job from what it's wired to; the student switches outputs.
       const neighbours = kindsOn(net);
       const guess: PinMode = neighbours.some((k) => k === "push_button")
         ? neighbours.includes("resistor")
@@ -510,29 +613,79 @@ export class Simulator {
           : neighbours.some((k) => ["resistor", "led", "buzzer", "npn_transistor", "shift_register_74hc595"].includes(k))
             ? "output"
             : "input";
-      const mode = firmware[short] ?? guess;
-      modes[num] = mode;
-      if (mode === "output") add(source(node, gnd, () => (this.controls.pinHigh[p.ref]?.[num] ? 5 : 0), 25));
-      else if (mode === "input_pullup") add(source(node, gnd, () => 5, 35_000));
-      else add(resistor(node, gnd, () => 1e8));
+      mcu.modes[num] = firmware[name.split("/")[0]] ?? guess;
+      mcu.level[num] = 0;
+      const drive = () => {
+        const mode = mcu.modes[num];
+        const level = mcu.program ? mcu.level[num] : this.controls.pinHigh[p.ref]?.[num] ? 1 : 0;
+        if (mode === "output") return { g: 1 / 25, v: 5 * level };
+        if (mode === "input_pullup") return { g: 1 / 35_000, v: 5 };
+        return { g: 1e-8, v: 0 };
+      };
+      this.elements.push({
+        nodes: [node, gnd],
+        owner: { ref: p.ref, pins: [num, gndPin] },
+        stamp: (ctx) => {
+          const { g, v } = drive();
+          stampG(ctx, node, gnd, g);
+          stampI(ctx, gnd, node, v * g);
+        },
+        currents: (vv) => {
+          const { g, v } = drive();
+          const i = (V(vv, node) - V(vv, gnd) - v) * g;
+          return [i, -i];
+        },
+      });
     }
   }
 
-  private logicChip(p: NetPart, vccPins: string[], gndPins: string[], outputs: string[]) {
-    const vcc = this.node(p.pins[vccPins[0]]);
-    const gnd = this.node(p.pins[gndPins[0]]);
+  /** 74HC595: a real shift register when a program clocks it; otherwise the student switches its outputs. */
+  private shiftRegister(p: NetPart) {
+    const n = (num: string) => this.node(p.pins[num]);
+    const vcc = n("16");
+    const gnd = n("8");
     const add = (e: Element, pins: string[]) => {
       e.owner = { ref: p.ref, pins };
       this.elements.push(e);
     };
-    add(resistor(vcc, gnd, () => 100_000), [vccPins[0], gndPins[0]]);
+    add(resistor(vcc, gnd, () => 100_000), ["16", "8"]);
+    const outputs = ["15", "1", "2", "3", "4", "5", "6", "7"]; // QA..QH
+    const stages = new Array<boolean>(8).fill(false);
+    const latched = new Array<boolean>(8).fill(false);
+    let qhPrime = false;
+    const level = (num: string) => {
+      const net = p.pins[num];
+      if (!net) return num === "10"; // SRCLR floating: treat as not clearing
+      for (const m of this.mcus) {
+        const pin = Object.keys(m.part.pins).find((k) => m.part.pins[k] === net && m.modes[k] === "output");
+        if (pin) return (m.program ? m.level[pin] : this.controls.pinHigh[m.ref]?.[pin] ? 1 : 0) > 0.5;
+      }
+      return V(this.v, this.node(net)) - V(this.v, gnd) > 2.5;
+    };
+    const clockedByProgram = () => this.mcus.some((m) => m.program);
+    this.digitalListeners.push((net, high) => {
+      if (!high) return; // rising edges only
+      if (net === p.pins["11"]) {
+        if (!level("10")) stages.fill(false);
+        else {
+          qhPrime = stages[7];
+          stages.splice(7, 1);
+          stages.unshift(level("14"));
+        }
+      } else if (net === p.pins["12"]) {
+        stages.forEach((b, i) => (latched[i] = b));
+        this.dirty = true;
+      }
+    });
     const modes: Record<string, PinMode> = {};
     this.pinModes[p.ref] = modes;
-    for (const num of outputs) {
-      if (!p.pins[num]) continue;
+    outputs.forEach((num, i) => {
+      if (!p.pins[num]) return;
       modes[num] = "output";
-      add(source(this.node(p.pins[num]), gnd, (ctx) => (this.controls.pinHigh[p.ref]?.[num] ? V(ctx.v, vcc) - V(ctx.v, gnd) : 0), 50), [num, gndPins[0]]);
-    }
+      const on = () => (clockedByProgram() ? latched[i] && !level("13") : !!this.controls.pinHigh[p.ref]?.[num]);
+      add(source(n(num), gnd, (ctx) => (on() ? V(ctx.v, vcc) - V(ctx.v, gnd) : 0), 50), [num, "8"]);
+    });
+    if (p.pins["9"]) add(source(n("9"), gnd, (ctx) => (qhPrime ? V(ctx.v, vcc) - V(ctx.v, gnd) : 0), 50), ["9", "8"]);
   }
 
   private connector(p: NetPart, driven: Set<string>) {
@@ -608,6 +761,11 @@ export class Simulator {
     let ok = true;
     for (let s = 0; s < steps; s++) {
       this.t += dt;
+      for (const m of this.mcus) {
+        if (!m.program) continue;
+        m.program.run(this.t * 1000);
+        if (m.program.error) m.error = m.program.error;
+      }
       ok = this.solveAt(dt) && ok;
     }
     this.ok = ok;
@@ -652,7 +810,8 @@ export class Simulator {
         pinI[e.owner!.ref][pin] = (pinI[e.owner!.ref][pin] ?? 0) + i;
       });
     }
-    const res: SimResult = { t: this.t, ok: this.ok, netV, pinI, parts: {}, pinModes: this.pinModes };
+    const mcu = Object.fromEntries(this.mcus.map((m) => [m.ref, { running: !!m.program && !m.error, error: m.error, serial: m.serial, notes: [...m.notes] }]));
+    const res: SimResult = { t: this.t, ok: this.ok, netV, pinI, parts: {}, pinModes: Object.fromEntries(Object.entries(this.pinModes).map(([k, v]) => [k, { ...v }])), mcu };
     for (const p of this.netlist.parts) res.parts[p.ref] = this.read(p, res);
     this.last = res;
     return res;

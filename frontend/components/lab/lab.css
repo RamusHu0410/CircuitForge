@@ -177,3 +177,9 @@
 .explore-btn b { color: var(--text); }
 .explore-btn small { color: var(--dim); font-size: 11.5px; }
 .explore-btn:hover { background: color-mix(in srgb, var(--brand) 16%, var(--bg)); }
+
+/* ---------- programs ---------- */
+.prog-state { padding: 6px 8px; border-radius: 6px; font-size: 12.5px; }
+.prog-state.ok { background: color-mix(in srgb, var(--ok) 10%, var(--bg)); color: var(--ok); }
+.prog-state.bad { background: color-mix(in srgb, var(--bad) 10%, var(--bg)); color: var(--bad); font-family: var(--mono); font-size: 12px; }
+.serial pre { margin: 4px 0 0; max-height: 140px; overflow: auto; padding: 8px; border-radius: 6px; background: #15171c; color: #a8f0a8; font-size: 11.5px; white-space: pre-wrap; }

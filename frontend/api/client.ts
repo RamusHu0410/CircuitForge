@@ -138,3 +138,56 @@ export async function exportDesign(files: SchematicFiles, firmware: Firmware | u
 export async function placeInSchematic(files: SchematicFiles): Promise<{ copied: boolean; symbols: number; message: string }> {
   return IN_BRIDGE ? invoke("place", files) : (await call("/api/desktop/place", { json: files })).json();
 }
+
+/* ---------- the website: mode, parts library, races ---------- */
+
+export interface SiteInfo {
+  mode: "desktop" | "web";
+  site_url: string | null;
+  features: { playground: boolean; speedruns: boolean; races: boolean };
+}
+
+const DESKTOP: SiteInfo = { mode: "desktop", site_url: null, features: { playground: false, speedruns: false, races: false } };
+
+/** Desktop app or website. Anything unclear (offline, an older service) counts as the desktop app. */
+export async function getSite(): Promise<SiteInfo> {
+  try {
+    return IN_BRIDGE ? await invoke<SiteInfo>("site") : await (await call("/api/site")).json();
+  } catch {
+    return DESKTOP;
+  }
+}
+
+export interface PartLibrary {
+  symbols: Record<string, import("../lab/scene").LibSymbol>;
+  kinds: { kind: string; lib_id: string; prefix: string; description: string; default_value: string }[];
+  power: Record<string, string>; // net -> lib_id
+}
+
+let libraryCache: Promise<PartLibrary> | null = null;
+
+/** Every part and power symbol with its drawing (fetched once). */
+export function getLibrary(): Promise<PartLibrary> {
+  libraryCache ??= (IN_BRIDGE ? invoke<PartLibrary>("library") : call("/api/library").then((r) => r.json())).catch((e) => {
+    libraryCache = null;
+    throw e;
+  });
+  return libraryCache;
+}
+
+export interface LeaderboardEntry {
+  name: string;
+  time_ms: number;
+  score: number;
+  at: number;
+}
+
+export async function getLeaderboard(challenge: string): Promise<LeaderboardEntry[]> {
+  return (await call(`/api/leaderboard?challenge=${encodeURIComponent(challenge)}`)).json();
+}
+
+/** The live race connection (website only). */
+export function raceSocket(name: string): WebSocket {
+  const base = ENGINE_URL || `${location.protocol}//${location.host}`;
+  return new WebSocket(`${base.replace(/^http/, "ws")}/api/race/ws?name=${encodeURIComponent(name)}`);
+}

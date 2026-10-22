@@ -20,7 +20,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.routes import desktop, frontend, generation, health
+from app.api.routes import desktop, frontend, generation, health, race, site
+from app.race import HUB
+from app.ratelimit import RateLimiter
 from app.config import Settings, get_settings
 
 REPO_DIST = Path(__file__).resolve().parents[3] / "dist"
@@ -60,10 +62,32 @@ def create_app() -> FastAPI:
     # Added last so it runs first: a request for any other Host never reaches the routes.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
+    web = settings.site_mode == "web"
+    if web:
+        # A public site: one visitor can't keep the engine busy for everyone else.
+        limiter = RateLimiter(settings.generate_per_minute, 60.0)
+
+        @app.middleware("http")
+        async def limit_generation(request: Request, call_next):  # type: ignore[no-untyped-def]
+            if request.method == "POST" and request.url.path.startswith(f"{settings.api_prefix}/generate"):
+                forwarded = request.headers.get("x-forwarded-for", "") if settings.trust_forwarded else ""
+                client = forwarded.split(",")[0].strip() or (request.client.host if request.client else "?")
+                if not limiter.allow(client):
+                    return JSONResponse({"detail": "Too many circuits at once. Wait a minute and try again."}, status_code=429)
+            return await call_next(request)
+
+        HUB.load_board(settings.leaderboard_file)
+
     app.include_router(health.router, prefix=settings.api_prefix)
+    app.include_router(site.router, prefix=settings.api_prefix)
     app.include_router(generation.router, prefix=settings.api_prefix)
     app.include_router(frontend.router, prefix=settings.api_prefix)
-    app.include_router(desktop.router, prefix=settings.api_prefix)
+    if web:
+        app.include_router(race.router, prefix=settings.api_prefix)
+    else:
+        # Saving, opening KiCad, the clipboard and exports act on the computer the service runs on:
+        # the desktop app only.
+        app.include_router(desktop.router, prefix=settings.api_prefix)
 
     ui = _ui_dir(settings)
 

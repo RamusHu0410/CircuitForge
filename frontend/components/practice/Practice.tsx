@@ -5,13 +5,14 @@ import type { Level, Project } from "../../types";
 import { buildLayout, buildNetlist, emptyBuild, type Build, type Look } from "../../lab/build";
 import { checkBuild, type CheckResult } from "../../lab/check";
 import { EXERCISES, type Exercise, type PracticeMode } from "../../lab/exercises";
+import { breadboardLayout } from "../../lab/breadboard";
 import { kindInfo } from "../../lab/knowledge";
 import { layoutFromScene, netlistFromScene, type Scene } from "../../lab/scene";
 import { Circuit3D } from "../lab/Lazy3D";
 import { Lab } from "../lab/Lab";
 import { Schematic2D } from "../lab/Schematic2D";
 import type { Selection } from "../lab/types";
-import { Builder } from "./Builder";
+import { Builder, type TrayItem } from "./Builder";
 import "./practice.css";
 
 const DONE_KEY = "circuitforge.practice";
@@ -37,13 +38,13 @@ const MODES: { id: PracticeMode; title: string; text: string; icon: React.ReactN
 
 /** The target shown on the left, with a one-line "what is this?" when you click something. */
 function Target({ scene, mode }: { scene: Scene; mode: PracticeMode }) {
-  const layout = useMemo(() => layoutFromScene(scene), [scene]);
+  // Build mode shows the schematic; draw mode shows the real thing, built on a breadboard.
+  const layout = useMemo(() => (mode === "build" ? layoutFromScene(scene) : breadboardLayout(netlistFromScene(scene))), [scene, mode]);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const live = useMemo(() => ({ current: { result: null, flow: null } }), []);
+  const live = useMemo(() => ({ current: { result: null, flows: [] } }), []);
   const props = {
     layout,
     result: null,
-    flow: null,
     selection,
     onSelect: setSelection,
     electrons: true,
@@ -58,7 +59,7 @@ function Target({ scene, mode }: { scene: Scene; mode: PracticeMode }) {
   const pin = selection?.kind === "pin" && comp ? kindInfo(comp.kind).pin(selection.pin, scene.library[comp.lib_id].pins.find((p) => p.number === selection.pin)?.name ?? "") : null;
   return (
     <div className="target">
-      <div className="target-view">{mode === "build" ? <Schematic2D scene={scene} {...props} /> : <Circuit3D {...props} live={live} values={{}} wipers={{}} />}</div>
+      <div className="target-view">{mode === "build" ? <Schematic2D scene={scene} flow={null} {...props} /> : <Circuit3D {...props} live={live} flowIndex={0} values={{}} wipers={{}} />}</div>
       <div className="target-info">
         {comp ? (
           <>
@@ -90,6 +91,12 @@ export function Practice({ generate, level, onClose }: Props) {
   const look: Look = mode === "build" ? "physical" : "schematic";
   const scene = project?.scene;
   const target = useMemo(() => (scene ? netlistFromScene(scene) : null), [scene]);
+  // The exercise's own parts (each placed once) and its power symbols.
+  const tray: TrayItem[] = useMemo(
+    () => (scene ? scene.components.map((c) => ({ key: c.ref, ref: c.ref, kind: c.kind, value: c.value, lib_id: c.lib_id, label: kindInfo(c.kind).name.split(" (")[0], hint: kindInfo(c.kind).name })) : []),
+    [scene],
+  );
+  const ports = useMemo(() => (scene ? [...new Map(scene.ports.map((p) => [p.net, { net: p.net, lib_id: p.lib_id }])).values()] : []), [scene]);
 
   const start = async (ex: Exercise, m: PracticeMode) => {
     setMode(m);
@@ -113,7 +120,7 @@ export function Practice({ generate, level, onClose }: Props) {
 
   const check = () => {
     if (!target) return;
-    const r = checkBuild(target, buildNetlist(build, target));
+    const r = checkBuild(target, buildNetlist(build, scene!.library));
     setResult(r);
     if (r.ok && exercise) {
       const next = { ...done, [`${exercise.id}:${mode}`]: true };
@@ -205,7 +212,7 @@ export function Practice({ generate, level, onClose }: Props) {
               </section>
               <section className="pr-pane">
                 <h3>{mode === "build" ? "Your circuit" : "Your schematic"}</h3>
-                <Builder look={look} scene={scene} target={target} build={build} onChange={(b) => (setBuild(b), setResult(null))} />
+                <Builder look={look} symbols={scene.library} tray={tray} ports={ports} build={build} onChange={(b) => (setBuild(b), setResult(null))} />
                 <div className="pr-check">
                   <button className="btn primary-btn" onClick={check} disabled={!build.parts.length}>
                     <Check size={14} /> check my {mode === "build" ? "circuit" : "schematic"}
@@ -254,7 +261,7 @@ export function Practice({ generate, level, onClose }: Props) {
             </button>
           </header>
           {mode === "build" ? (
-            <Lab layout={buildLayout(build, "physical", scene, target)} netlist={buildNetlist(build, target)} level={level} jumpers initialView="3d" />
+            <Lab layout={buildLayout(build, "physical", scene.library)} netlist={buildNetlist(build, scene.library)} level={level} initialView="3d" />
           ) : (
             <Lab scene={scene} firmware={project?.firmware?.code} level={level} />
           )}

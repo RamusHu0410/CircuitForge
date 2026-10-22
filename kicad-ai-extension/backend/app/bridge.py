@@ -21,6 +21,7 @@ from app.ai.circuit_generator import GenerationError
 from app.config import Settings
 from app.schemas.circuit import GenerateRequest, SchematicFiles
 from app.services.generation_service import GenerationService
+from app.site import part_library, site_info
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,13 @@ class Api:
 
     def export(self, body: Any) -> Reply:
         return self._reply(lambda: actions.export(ExportRequest.model_validate(body), self._settings))
+
+    def site(self) -> Reply:
+        # Inside KiCad: always the desktop app (the playground and races are on the website).
+        return self._reply(lambda: site_info(self._settings, mode="desktop"))
+
+    def library(self) -> Reply:
+        return self._reply(part_library)
 
     # --- internals ------------------------------------------------------------------------
 

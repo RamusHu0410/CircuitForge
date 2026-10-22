@@ -233,14 +233,29 @@ function PartControls({ part, controls, update, result }: { part: Netlist["parts
     case "shift_register_74hc595": {
       const modes = result?.pinModes[ref] ?? {};
       const pins = Object.entries(modes).filter(([num]) => part.pins[num]);
-      if (!pins.length) return null;
+      const program = result?.mcu?.[ref] ?? (part.kind === "shift_register_74hc595" ? Object.values(result?.mcu ?? {})[0] : undefined);
+      const running = !!program?.running;
+      if (!pins.length && !program) return null;
       return (
         <section className="insp-sec ctl-sec">
-          <span className="ctl-title">Pins in use</span>
+          {program?.error ? (
+            <div className="prog-state bad">Your program stopped: {program.error}</div>
+          ) : running ? (
+            <div className="prog-state ok">{part.kind === "shift_register_74hc595" ? "Driven by the program on the Arduino." : "Your program is running: it sets these pins, the circuit answers."}</div>
+          ) : (
+            <span className="ctl-title">Pins in use (no program: switch the outputs yourself)</span>
+          )}
           <div className="gpio">
             {pins.map(([num, mode]) => {
               const name = cleanPinName(part.pinNames[num] ?? num);
               const v = result?.netV[part.pins[num]] ?? 0;
+              if (mode === "output" && running) {
+                return (
+                  <span key={num} className={`gpio-pin out${v > 2.5 ? " on" : ""}`} title={`${name} → ${part.pins[num]}`}>
+                    <b>{name}</b> output <i>{v > 2.5 ? "HIGH" : "LOW"}</i> ({volts(v)})
+                  </span>
+                );
+              }
               if (mode === "output") {
                 const on = !!controls.pinHigh[ref]?.[num];
                 return (
@@ -256,6 +271,12 @@ function PartControls({ part, controls, update, result }: { part: Netlist["parts
               );
             })}
           </div>
+          {program && part.kind !== "shift_register_74hc595" && (
+            <div className="serial">
+              <span className="ctl-title">Serial monitor</span>
+              <pre>{program.serial || "(nothing printed yet)"}</pre>
+            </div>
+          )}
         </section>
       );
     }

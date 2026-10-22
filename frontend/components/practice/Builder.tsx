@@ -1,47 +1,63 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RotateCw, Trash2 } from "lucide-react";
-import { kindInfo } from "../../lab/knowledge";
-import { partPins, type Build, type BuildPart, type End, type Look } from "../../lab/build";
-import type { Netlist, Pt, Scene } from "../../lab/scene";
+import { partPins, pinNamesOf, WIRE_COLORS, type Build, type BuildPart, type End, type Look, type Symbols } from "../../lab/build";
+import type { Pt } from "../../lab/scene";
 import { GraphicEl, Pins } from "../lab/Schematic2D";
 import { footprint } from "./physical";
 
-const W = 112;
-const H = 72;
 const GRID = 1.27;
-const WIRE_COLORS = ["#d93b2b", "#202124", "#2f6fd8", "#2c9e3b", "#e0a020", "#8a4fd6", "#e07b39"];
+
+/** Something in the tray: an exercise's part (placed once, keeps its ref) or a library part (any number). */
+export interface TrayItem {
+  key: string;
+  kind: string;
+  value: string;
+  lib_id: string;
+  ref?: string;
+  prefix?: string; // for library parts: R, C, D, U…
+  label: string;
+  hint?: string;
+  /** Heading shown above the first item of each group. */
+  group?: string;
+  /** Highlight it (a challenge's key parts). */
+  key_part?: boolean;
+}
 
 interface Props {
   look: Look;
-  scene: Scene; // the target's symbols (for the schematic look)
-  target: Netlist;
+  symbols: Symbols;
+  tray: TrayItem[];
+  ports: { net: string; lib_id: string }[];
   build: Build;
   onChange: (b: Build) => void;
+  /** Canvas size in mm. */
+  size?: [number, number];
+  trayTitle?: string;
+  onSelectPart?: (id: string | null) => void;
 }
 
 let ids = 0;
 const newId = (p: string) => `${p}${++ids}`;
 const snap = (v: number) => Math.round(v / GRID) * GRID;
 
-function symbolBody(scene: Scene, libId: string) {
-  return scene.library[libId].graphics.map((g, i) => <GraphicEl key={i} g={g} body="var(--kc-body)" />);
+function symbolBody(symbols: Symbols, libId: string) {
+  return symbols[libId].graphics.map((g, i) => <GraphicEl key={i} g={g} body="var(--kc-body)" />);
 }
 
-export function Builder({ look, scene, target, build, onChange }: Props) {
+export function Builder({ look, symbols, tray, ports, build, onChange, size = [112, 72], trayTitle, onSelectPart }: Props) {
+  const [W, H] = size;
   const svg = useRef<SVGSVGElement>(null);
-  const [selected, setSelected] = useState<{ kind: "part" | "port" | "wire"; id: string } | null>(null);
+  const [selected, setSelectedRaw] = useState<{ kind: "part" | "port" | "wire"; id: string } | null>(null);
+  const setSelected = (s: { kind: "part" | "port" | "wire"; id: string } | null) => {
+    setSelectedRaw(s);
+    onSelectPart?.(s?.kind === "part" ? s.id : null);
+  };
   const [pending, setPending] = useState<End | null>(null);
   const [mouse, setMouse] = useState<Pt | null>(null);
   const drag = useRef<{ id: string; kind: "part" | "port"; dx: number; dy: number; moved: boolean } | null>(null);
   const [hoverPin, setHoverPin] = useState<{ label: string; at: Pt } | null>(null);
 
-  const pinNamesOf = (ref: string) => target.parts.find((p) => p.ref === ref)?.pinNames ?? {};
-  const libOf = useMemo(() => Object.fromEntries(scene.components.map((c) => [c.ref, c.lib_id])), [scene]);
-  const portLibs = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of scene.ports) m.set(p.net, p.lib_id);
-    return m;
-  }, [scene]);
+  const portLibs = useMemo(() => new Map(ports.map((p) => [p.net, p.lib_id])), [ports]);
 
   const toWorld = (e: { clientX: number; clientY: number }): Pt => {
     const m = svg.current!.getScreenCTM()!.inverse();
@@ -49,7 +65,7 @@ export function Builder({ look, scene, target, build, onChange }: Props) {
     return [p.x, p.y];
   };
 
-  const pinsOf = (part: BuildPart) => partPins(part, look, scene, pinNamesOf(part.ref));
+  const pinsOf = (part: BuildPart) => partPins(part, look, symbols);
   const endPoint = (end: End): Pt | null => {
     const part = build.parts.find((p) => p.id === end.id);
     if (part) return pinsOf(part).find((p) => p.number === end.pin)?.at ?? null;
@@ -59,8 +75,8 @@ export function Builder({ look, scene, target, build, onChange }: Props) {
 
   const freeSpot = (): Pt => {
     const taken = [...build.parts, ...build.ports].map((p) => [p.x, p.y]);
-    for (let row = 0; row < 4; row++)
-      for (let col = 0; col < 6; col++) {
+    for (let row = 0; row < Math.floor((H - 6) / 17); row++)
+      for (let col = 0; col < Math.floor((W - 4) / 18); col++) {
         const x = snap(12 + col * 18);
         const y = snap(13 + row * 17);
         if (!taken.some(([tx, ty]) => Math.abs(tx - x) < 9 && Math.abs(ty - y) < 9)) return [x, y];
@@ -68,11 +84,15 @@ export function Builder({ look, scene, target, build, onChange }: Props) {
     return [snap(W / 2), snap(H / 2)];
   };
 
-  const placePart = (ref: string) => {
-    const t = target.parts.find((p) => p.ref === ref)!;
+  const nextRef = (prefix: string) => {
+    const used = build.parts.map((p) => new RegExp(`^${prefix}(\\d+)$`).exec(p.ref)).filter(Boolean).map((m) => Number(m![1]));
+    return `${prefix}${Math.max(0, ...used) + 1}`;
+  };
+  const placePart = (item: TrayItem) => {
     const [x, y] = freeSpot();
     const id = newId("p");
-    onChange({ ...build, parts: [...build.parts, { id, ref, kind: t.kind, value: t.value, lib_id: libOf[ref], x, y, rot: 0 }] });
+    const ref = item.ref ?? nextRef(item.prefix ?? "X");
+    onChange({ ...build, parts: [...build.parts, { id, ref, kind: item.kind, value: item.value, lib_id: item.lib_id, x, y, rot: 0 }] });
     setSelected({ kind: "part", id });
   };
   const placePort = (net: string) => {
@@ -137,12 +157,18 @@ export function Builder({ look, scene, target, build, onChange }: Props) {
   return (
     <div className={`builder ${look}`}>
       <div className="tray" aria-label="Parts to place">
-        <span className="tray-title">{look === "physical" ? "Parts box" : "Symbols"}</span>
-        {target.parts.map((p) => (
-          <button key={p.ref} className={`tray-item${usedRefs.has(p.ref) ? " used" : ""}`} disabled={usedRefs.has(p.ref)} onClick={() => placePart(p.ref)} title={kindInfo(p.kind).name}>
-            <b>{p.ref}</b> {kindInfo(p.kind).name.split(" (")[0]} <span className="dim">{p.value.replace(/_/g, " ")}</span>
-          </button>
-        ))}
+        <span className="tray-title">{trayTitle ?? (look === "physical" ? "Parts box" : "Symbols")}</span>
+        {tray.map((item, i) => {
+          const used = !!item.ref && usedRefs.has(item.ref);
+          return (
+            <span key={item.key} className="contents">
+              {item.group && item.group !== tray[i - 1]?.group && <span className="tray-group">{item.group}</span>}
+              <button className={`tray-item${used ? " used" : ""}${item.key_part ? " key" : ""}`} disabled={used} onClick={() => placePart(item)} title={item.hint ?? item.label}>
+                {item.ref && <b>{item.ref}</b>} {item.label} <span className="dim">{item.value.replace(/_/g, " ")}</span>
+              </button>
+            </span>
+          );
+        })}
         {look === "schematic" &&
           portNets.map((net) => (
             <button key={net} className="tray-item port" onClick={() => placePort(net)} title="Power symbol: every one with the same name is connected">
@@ -156,6 +182,7 @@ export function Builder({ look, scene, target, build, onChange }: Props) {
           ref={svg}
           className="build-canvas"
           viewBox={`0 0 ${W} ${H}`}
+          style={{ aspectRatio: `${W} / ${H}` }}
           onPointerMove={(e) => {
             const p = toWorld(e);
             setMouse(p);
@@ -213,7 +240,7 @@ export function Builder({ look, scene, target, build, onChange }: Props) {
                     drag.current = { id: port.id, kind: "port", dx: p[0] - port.x, dy: p[1] - port.y, moved: false };
                   }}
                 >
-                  {symbolBody(scene, port.lib_id)}
+                  {symbolBody(symbols, port.lib_id)}
                   <rect x={-2} y={-4} width={4} height={8} fill="transparent" stroke="none" />
                 </g>
                 <text x={port.x} y={/GND/.test(port.net) ? port.y + 5.5 : port.y - 4} textAnchor="middle" className="bref">
@@ -232,7 +259,7 @@ export function Builder({ look, scene, target, build, onChange }: Props) {
               const p = toWorld(e);
               drag.current = { id: part.id, kind: "part", dx: p[0] - part.x, dy: p[1] - part.y, moved: false };
             };
-            const fp = look === "physical" ? footprint(part.kind, part.value, pinNamesOf(part.ref)) : null;
+            const fp = look === "physical" ? footprint(part.kind, part.value, pinNamesOf(symbols, part.lib_id)) : null;
             const xs = pins.map((p) => p.at[0]);
             const ys = pins.map((p) => p.at[1]);
             return (
@@ -244,12 +271,12 @@ export function Builder({ look, scene, target, build, onChange }: Props) {
                   </g>
                 ) : (
                   <g transform={`translate(${part.x} ${part.y}) scale(1 -1) rotate(${part.rot})`} onPointerDown={start} className="bsym">
-                    {symbolBody(scene, part.lib_id)}
+                    {symbolBody(symbols, part.lib_id)}
                   </g>
                 )}
                 {!fp && (
                   <g className="bpins">
-                    <Pins lib={scene.library[part.lib_id]} comp={{ x: part.x, y: part.y, rot: part.rot, mirror: false }} />
+                    <Pins lib={symbols[part.lib_id]} comp={{ x: part.x, y: part.y, rot: part.rot, mirror: false }} />
                   </g>
                 )}
                 <text x={Math.min(...xs, part.x) - 1} y={Math.min(...ys, part.y) - 3} className="bref">

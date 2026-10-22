@@ -4,7 +4,7 @@ import type { Activity, ActivityKind, ChatMessage, Check, Level, Project, Settin
 import type { DesktopInfo } from "./api/backend";
 import { levelLabel, nextLevel } from "./data/explain";
 import { EXAMPLE_PROJECT } from "./data/example";  // the tutorial is written around it
-import { ApiError, exportDesign, getDesktopInfo, NotConnectedError, placeInSchematic, previewSvg, requestPlan, saveAndOpen } from "./api/client";
+import { ApiError, exportDesign, getDesktopInfo, getSite, NotConnectedError, placeInSchematic, previewSvg, requestPlan, saveAndOpen, type SiteInfo } from "./api/client";
 import { applyTheme, BACKGROUND_PRESETS, BRAND_PRESETS, DEFAULT_BACKGROUND, DEFAULT_BRAND, isHex } from "./theme";
 import { svgToPng } from "./lib/svg";
 import { KiCadPreview } from "./components/KiCadPreview";
@@ -13,6 +13,7 @@ import { Logo } from "./components/Logo";
 import { ClassroomCard } from "./components/Tutorial";
 import { Classroom, type ClassroomState } from "./components/classroom/Classroom";
 import { Practice } from "./components/practice/Practice";
+import { Arena, type ArenaTab } from "./components/arena/Arena";
 import { TutorialOverlay, chapterProgress, type TutorialProgress } from "./components/tutorial/TutorialShell";
 import { Plan, type ActionEntry, type KiCadInfo } from "./components/Plan";
 import { ChecksPanel, Composer, Modal, PartsMini, PreviewMenu, UtilityPanel, type PreviewKind } from "./components/Panels";
@@ -31,8 +32,9 @@ function loadSettings(): Settings {
 
 const now = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
-function describeKiCad(backendUp: boolean | null, desk: DesktopInfo | null): KiCadInfo {
+function describeKiCad(backendUp: boolean | null, desk: DesktopInfo | null, site: SiteInfo | null): KiCadInfo {
   if (backendUp === false) return { status: "disconnected", label: "backend offline" };
+  if (site?.mode === "web") return { status: "connected", label: "CircuitForge web" };
   if (!desk) return { status: "connecting", label: "checking…" };
   if (desk.opened_from_kicad) return { status: "connected", label: `KiCad ${desk.kicad_version ?? ""} · ${desk.project_name ?? "no project"}` };
   if (desk.kicad_found) return { status: "connected", label: `KiCad ${desk.kicad_version ?? "found"}` };
@@ -53,6 +55,10 @@ export default function App() {
   const [classState, setClassState] = useState<ClassroomState>({ visited: [], answers: {}, done: {} });
   const [classLab, setClassLab] = useState(true); // the classroom opens on the interactive lab
   const [practice, setPractice] = useState(false);
+  const [arena, setArena] = useState<ArenaTab | null>(null);
+  const [site, setSite] = useState<SiteInfo | null>(null);
+  const web = site?.mode === "web";
+  const siteRef = useRef<SiteInfo | null>(null);
   const [tutProgress, setTutProgress] = useState<TutorialProgress>({ howDone: false, mathTouched: false, reviewed: [] });
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<PreviewKind | null>(null);
@@ -71,6 +77,19 @@ export default function App() {
   /* ---------- backend + KiCad status ---------- */
   const refreshInfo = useCallback(async () => {
     try {
+      if (!siteRef.current) {
+        siteRef.current = await getSite();
+        setSite(siteRef.current);
+      }
+      if (siteRef.current.mode === "web") {
+        // The website has no KiCad or desktop session: being able to reach the service is enough.
+        await getSite();
+        setBackendUp((was) => {
+          if (was !== true) log("success", "connected");
+          return true;
+        });
+        return;
+      }
       const info = await getDesktopInfo();
       setDesk(info);
       setBackendUp((was) => {
@@ -106,7 +125,7 @@ export default function App() {
     }
   }, [settings]);
 
-  const kicad = describeKiCad(backendUp, desk);
+  const kicad = describeKiCad(backendUp, desk, site);
 
   /* ---------- plan ---------- */
   const toggleStep = (id: string) =>
@@ -176,7 +195,30 @@ export default function App() {
   /** The firmware as the user has edited it (what gets saved and exported). */
   const firmware = project?.firmware && code !== null ? { ...project.firmware, code } : project?.firmware;
 
+  /** On the website: hand the KiCad project (and the sketch) to the browser as downloads. */
+  const download = () =>
+    project?.files &&
+    runAction("Download(KiCad project)", async () => {
+      const files = project!.files!;
+      const items: [string, string][] = [
+        [`${files.name}.kicad_sch`, files.schematic],
+        [`${files.name}.kicad_pro`, files.project],
+        ...(firmware ? ([[firmware.file_name, firmware.code]] as [string, string][]) : []),
+      ];
+      for (const [name, text] of items) {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        await new Promise((r) => setTimeout(r, 250)); // browsers drop downloads fired in the same instant
+      }
+      log("success", "downloaded");
+      return [`downloaded ${items.map(([n]) => n).join(", ")}`, "Put them in one folder and open the .kicad_pro in KiCad."];
+    });
+
   const save = () =>
+    web ? download() :
     project?.files &&
     runAction("Save(new KiCad project)", async () => {
       const r = await saveAndOpen(project!.files!, firmware);
@@ -307,6 +349,13 @@ export default function App() {
             onCloseWelcome={() => setSettings((s) => ({ ...s, welcomeDismissed: true }))}
             onPickExample={(text) => setPrefill((p) => ({ text, seq: p.seq + 1 }))}
             onPractice={() => setPractice(true)}
+            web={web}
+            site={site}
+            onExplore={() => {
+              setClassLab(true);
+              setClassroom(0);
+            }}
+            onArena={setArena}
             onOpenPcb={openPcb}
             messages={messages}
             actions={actions}
@@ -353,7 +402,7 @@ export default function App() {
 
         {classroom !== null && project?.lesson && (
           <Classroom
-            project={{ ...project, lesson: project.lesson }}
+            project={{ ...project, lesson: project.lesson, firmware }} /* the code as edited: it runs in the lab */
             index={Math.min(classroom, project.lesson.sections.length - 1)}
             state={classState}
             level={settings.level}
@@ -367,6 +416,8 @@ export default function App() {
         )}
 
         {practice && <Practice generate={requestPlan} level={settings.level} onClose={() => setPractice(false)} />}
+
+        {arena && web && <Arena tab={arena} level={settings.level} onClose={() => setArena(null)} />}
 
         {tutorial !== null && (
           <TutorialOverlay

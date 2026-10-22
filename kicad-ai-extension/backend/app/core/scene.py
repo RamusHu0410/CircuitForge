@@ -315,3 +315,13 @@ def build_scene(schematic: str, circuit: ResolvedCircuit) -> Scene:
         no_connects=no_connects,
     )
 
+
+
+def library_symbols() -> dict[str, LibSymbol]:
+    """Every symbol a circuit can use (components and power symbols), for the playground's parts box."""
+    from app.core.component_registry import COMPONENT_KINDS, POWER_SYMBOLS
+    from app.core.symbol_library import get_library
+
+    lib = get_library()
+    ids = sorted({k.lib_id for k in COMPONENT_KINDS.values()} | set(POWER_SYMBOLS.values()))
+    return {i: _lib_symbol(lib[i].tree) for i in ids}
